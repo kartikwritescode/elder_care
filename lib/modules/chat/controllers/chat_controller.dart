@@ -52,12 +52,13 @@ class ChatController extends GetxController {
         .from('messages')
         .select()
         .eq('chat_id', _chatId!)
-        .order('created_at', ascending: true);
+        .order('created_at', ascending: false);
 
     final loaded =
     (res as List).map((e) => MessageModel.fromJson(e)).toList();
 
-    loaded.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    // Sort descending: newest messages first (at index 0)
+    loaded.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     messages.value = loaded;
   }
@@ -93,7 +94,8 @@ class ChatController extends GetxController {
         ),
         callback: (payload) async {
           final msg = MessageModel.fromJson(payload.newRecord);
-          messages.add(msg);
+          // Insert at the beginning of the list (newest first)
+          messages.insert(0, msg);
 
           // auto-mark seen if message is from partner
           if (msg.senderId == _partnerId) {

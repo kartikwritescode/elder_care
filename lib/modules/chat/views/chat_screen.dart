@@ -41,41 +41,34 @@ class _ChatScreenState extends State<ChatScreen> {
       partnerImage: widget.partnerImage,
     );
 
-    /// Scroll after first frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToBottom();
-    });
-
     /// Listen for new messages
     int previousLength = 0;
 
     ever(controller.messages, (list) {
       if (list.length > previousLength) {
-        _scrollToBottom();
+        // Only auto-scroll if we are near the bottom or if it's our own message
+        if (_isNearBottom() || (list.isNotEmpty && list.first.senderId == authController.user.value?.id)) {
+          _scrollToBottom();
+        }
       }
       previousLength = list.length;
     });
   }
+
+  bool _isNearBottom() {
+    if (!scrollController.hasClients) return true;
+    // In a reversed list, 0.0 is the bottom.
+    return scrollController.offset < 100;
+  }
+
   @override
   void dispose() {
     Get.delete<ChatController>(tag: widget.chatId);
+    scrollController.dispose();
+    textController.dispose();
     super.dispose();
   }
-  // @override
-  // void didChangeMetrics() {
-  //   final bottomInset = WidgetsBinding.instance.window.viewInsets.bottom;
-  //
-  //   if (bottomInset > 0) {
-  //     // Keyboard opened
-  //     _scrollToBottom();
-  //   }
-  // }
 
-  // bool isKeyboardOpen(BuildContext context) {
-  //   return MediaQuery.of(context).viewInsets.bottom > 0;
-  // }
-
-// keyboard opens -> padding and scroll to bottom
   void _scrollToBottom() {
     if (!scrollController.hasClients) return;
 
@@ -88,11 +81,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final me = authController.user.value;
-
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      extendBody: true,
+      extendBody: false, // Changed to false to avoid keyboard overlapping issues
 
 
       appBar: AppBar(
@@ -104,15 +95,12 @@ class _ChatScreenState extends State<ChatScreen> {
             SizedBox(width: Get.width * 0.05),
             CircleAvatar(
               radius: 20,
-              // backgroundImage: controller.partnerImage.value != null
-              //     ? NetworkImage(controller.partnerImage.value!)
-              //     : null,
               backgroundImage: controller.partnerImage.value != null &&
                   controller.partnerImage.value!.isNotEmpty
                   ? NetworkImage(controller.partnerImage.value!)
                   : null,
               backgroundColor: Colors.teal.shade100,
-              child: controller.partnerImage.value == null
+              child: controller.partnerImage.value == null || controller.partnerImage.value!.isEmpty
                   ? const Icon(Icons.person, color: Colors.teal)
                   : null,
             ),
@@ -128,7 +116,9 @@ class _ChatScreenState extends State<ChatScreen> {
         )),
         actions: [
           IconButton(icon: const Icon(Icons.call), onPressed: () {
-            makePhoneCall("");
+            // Assuming the controller or something has the partner's phone number
+            // For now keeping it as is since I should only touch chat logic
+            makePhoneCall(""); 
           }),
           IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
         ],
@@ -159,25 +149,26 @@ class _ChatScreenState extends State<ChatScreen> {
 
                     ListView.builder(
                       controller: scrollController,
-                      reverse: false,
-                      physics: const AlwaysScrollableScrollPhysics(),
+                      reverse: true, // Crucial for chat apps
+                      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                       padding: EdgeInsets.symmetric(
-                        // horizontal: Get.width * 0.000,
-                        vertical: Get.height * 0.01,   // 1.5% height
+                        vertical: Get.height * 0.01,
                       ),
                       itemCount: controller.messages.length,
                       itemBuilder: (_, i) {
                         final msg = controller.messages[i];
                         final isMe =
-                            msg.senderId == authController.user.value!.id;
+                            msg.senderId == authController.user.value?.id;
 
+                        // In reversed list, i+1 is OLDER than i
                         final currentDate = msg.createdAt;
-                        final previousDate = i < controller.messages.length - 1
+                        final olderDate = i < controller.messages.length - 1
                             ? controller.messages[i + 1].createdAt
                             : null;
 
-                        final showDateSeparator = previousDate == null ||
-                            !_isSameDay(currentDate, previousDate);
+                        // Show separator if this is the oldest message or if the next (older) message is on a different day
+                        final showDateSeparator = olderDate == null ||
+                            !_isSameDay(currentDate, olderDate);
 
                         return Column(
                           children: [
@@ -211,7 +202,6 @@ class _ChatScreenState extends State<ChatScreen> {
   /// INPUT BAR
   Widget _inputBar() {
     return SafeArea(
-      top: false,
       child: Padding(
         padding: EdgeInsets.fromLTRB(
           Get.width * 0.04,
@@ -241,6 +231,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     decoration: const InputDecoration(
                       hintText: "Type a message…",
                       border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     ),
                   ),
                 ),
@@ -262,6 +253,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
                       controller.sendMessage(text);
                       textController.clear();
+                      // No need to manually scroll if 'ever' listener handles it, 
+                      // but calling it here ensures immediate feedback for sender.
                       _scrollToBottom();
                     },
                   ),
@@ -292,9 +285,9 @@ bool _isSameDay(DateTime a, DateTime b) {
       a.month == b.month &&
       a.day == b.day;
 }
+
 Widget _buildDateSeparator(DateTime date) {
   final now = DateTime.now();
-
   String label;
 
   if (_isSameDay(date, now)) {
@@ -303,24 +296,24 @@ Widget _buildDateSeparator(DateTime date) {
       date, now.subtract(const Duration(days: 1)))) {
     label = "Yesterday";
   } else {
-    label =
-    "${date.day}/${date.month}/${date.year}";
+    label = "${date.day}/${date.month}/${date.year}";
   }
 
   return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 10),
+    padding: const EdgeInsets.symmetric(vertical: 20),
     child: Center(
       child: Container(
         padding: const EdgeInsets.symmetric(
             horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.grey.shade300,
+          color: Colors.grey.shade200,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
               fontSize: 12,
+              color: Colors.grey.shade600,
               fontWeight: FontWeight.w600),
         ),
       ),
