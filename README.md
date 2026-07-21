@@ -1,4 +1,4 @@
-# 💙 ElderCare
+# ElderCare
 ### A Connected Care Platform for Monitoring, Safety, and Peace of Mind
 
 **ElderCare** is a modern, cross-platform caregiving application designed to seamlessly connect **caregivers** and **care receivers**. It enables real-time monitoring, scheduled reminders, and location awareness - helping families and caregivers ensure safety, consistency, and well-being without friction.
