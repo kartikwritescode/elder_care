@@ -3,9 +3,13 @@ import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../controllers/carereceiver_dashboard_controller.dart';
 
-Widget BatterySection() {
-  final ReceiverDashboardController controller =
-  Get.find<ReceiverDashboardController>();
+class BatterySection extends StatelessWidget {
+  const BatterySection({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final ReceiverDashboardController controller =
+        Get.find<ReceiverDashboardController>();
 
   return Obx(() {
     final connected = controller.isDeviceConnected.value;
@@ -126,4 +130,5 @@ Widget BatterySection() {
       ),
     );
   });
+  }
 }

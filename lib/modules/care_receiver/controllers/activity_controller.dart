@@ -44,23 +44,33 @@ class ActivityController extends GetxController {
 
   // CAREGIVER SIDE (fetch receiver activity)
   Future<void> hydrateFromServer(String receiverId) async {
-    final res = await supabase
-        .from('user_locations')
-        .select('last_activity_at')
-        .eq('user_id', receiverId)
-        .maybeSingle();
+    try {
+      final res = await supabase
+          .from('user_locations')
+          .select('last_activity_at')
+          .eq('user_id', receiverId)
+          .maybeSingle();
 
-    if (res == null) {
+      if (res == null) {
+        isOnline.value = false;
+        lastSeenText.value = 'Offline';
+        return;
+      }
+
+      final rawTime = res['last_activity_at']?.toString();
+      if (rawTime == null || rawTime.isEmpty) {
+        isOnline.value = false;
+        lastSeenText.value = 'Offline';
+        return;
+      }
+
+      final last = DateTime.parse(rawTime.endsWith('Z') ? rawTime : '${rawTime}Z').toLocal();
+      _lastActivityAt = last;
+      _recompute();
+    } catch (_) {
       isOnline.value = false;
       lastSeenText.value = 'Offline';
-      return;
     }
-
-    final last =
-    DateTime.parse(res['last_activity_at'] + 'Z').toLocal();
-
-    _lastActivityAt = last;
-    _recompute();
   }
 
   // INTERNAL

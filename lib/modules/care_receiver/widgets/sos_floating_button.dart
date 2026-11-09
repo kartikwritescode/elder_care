@@ -6,7 +6,7 @@ import '../controllers/carereceiver_dashboard_controller.dart';
 
 class SOSFab extends StatelessWidget {
   final ReceiverDashboardController controller;
-  const SOSFab(this.controller);
+  const SOSFab(this.controller, {super.key});
 
   @override
   Widget build(BuildContext context) {

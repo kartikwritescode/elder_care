@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/models/task_model.dart';
 import '../../../../core/models/timeline_item.dart';
+import '../../../../core/repositories/event_repository.dart';
+import '../../../../core/repositories/task_repository.dart';
 
 class ScheduleController extends GetxController {
   final supabase = Supabase.instance.client;
@@ -34,46 +36,45 @@ class ScheduleController extends GetxController {
       final startOfDay = DateTime(day.year, day.month, day.day);
       final endOfDay = startOfDay.add(const Duration(days: 1));
 
+      final taskRepo = Get.isRegistered<TaskRepository>()
+          ? Get.find<TaskRepository>()
+          : TaskRepository();
+      final eventRepo = Get.isRegistered<EventRepository>()
+          ? Get.find<EventRepository>()
+          : EventRepository();
+
       // tasks
-      final taskRes = await supabase
-          .from('tasks')
-          .select()
-          .eq('receiver_id', user.id);
+      final tasks = await taskRepo.getTasks(user.id);
       final dayKey = DateFormat('yyyy-MM-dd').format(day);
 
-      final taskItems = (taskRes as List)
-          .map((e) => TaskModel.fromMap(e))
+      final taskItems = tasks
           .where((task) => task.datetime != null)
           .where((task) => _shouldAppear(task, day))
           .map((task) => TimelineItem(
-        type: TimelineType.task,
-        id: task.id!,
-        title: task.title,
-        time: DateTime.parse(task.datetime!).toLocal(),
-        alarmEnabled: task.alarmEnabled,
-
-
-          isCompleted: task.repeatType == 'none'
-          ? task.isCompleted
-              : task.completedDates.contains(dayKey),
-
-    ))
+                type: TimelineType.task,
+                id: task.id ?? 0,
+                title: task.title,
+                time: DateTime.parse(task.datetime!).toLocal(),
+                alarmEnabled: task.alarmEnabled,
+                isCompleted: task.repeatType == 'none'
+                    ? task.isCompleted
+                    : task.completedDates.contains(dayKey),
+              ))
           .toList();
 
       // EVENTS
-      final eventRes = await supabase
-          .from('events')
-          .select()
-          .gte('created_at', startOfDay.toIso8601String())
-          .lt('created_at', endOfDay.toIso8601String());
+      final events = await eventRepo.getEvents(user.id);
 
-      final eventItems = (eventRes as List)
+      final eventItems = events
+          .where((e) =>
+              e.eventTime.isAfter(startOfDay.subtract(const Duration(seconds: 1))) &&
+              e.eventTime.isBefore(endOfDay))
           .map((e) => TimelineItem(
-        type: TimelineType.event,
-        id: e['id'],
-        title: e['title'] ?? '',
-        time: DateTime.parse(e['created_at']).toLocal(),
-      ))
+                type: TimelineType.event,
+                id: e.id ?? 0,
+                title: e.title,
+                time: e.eventTime.toLocal(),
+              ))
           .toList();
 
       timeline.assignAll(

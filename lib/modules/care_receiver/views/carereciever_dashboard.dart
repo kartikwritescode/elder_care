@@ -1,49 +1,53 @@
-import 'package:elder_care/modules/care_receiver/widgets/receiver_battery.dart';
 import 'package:elder_care/modules/events/controllers/events_controller.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:lottie/lottie.dart';
 
-import '../../caregiver/widgets/statussection.dart';
 import '../../events/views/eventssection.dart';
 import '../../tasks/views/task_section.dart';
 import '../controllers/carereceiver_dashboard_controller.dart';
 import '../widgets/context_strip.dart';
 import '../widgets/mood_dialog.dart';
-import '../widgets/mood_section.dart';
 import '../widgets/reciever_status_chip.dart';
-import '../widgets/sos_button.dart';
 
 class ReceiverDashboardScreen extends StatefulWidget {
-
-  ReceiverDashboardScreen({Key? key}) : super(key: key);
+  const ReceiverDashboardScreen({super.key});
 
   @override
   State<ReceiverDashboardScreen> createState() => _ReceiverDashboardScreenState();
 }
 
 class _ReceiverDashboardScreenState extends State<ReceiverDashboardScreen> {
+  final ReceiverDashboardController controller = Get.isRegistered<ReceiverDashboardController>()
+      ? Get.find<ReceiverDashboardController>()
+      : Get.put(ReceiverDashboardController(), permanent: true);
+  final EventsController eventsController = Get.find<EventsController>();
+  bool _dialogShown = false;
+  Worker? _moodWorker;
+
   @override
   void initState() {
     super.initState();
 
-    ever(controller.shouldShowMoodDialog, (bool show) {
+    _moodWorker = ever(controller.shouldShowMoodDialog, (bool show) {
       if (show && !_dialogShown && mounted) {
         _dialogShown = true;
 
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          MoodDialog.show(context);
+          if (mounted) {
+            MoodDialog.show(context);
+          }
         });
       }
     });
   }
 
-
-  final ReceiverDashboardController controller = Get.put(ReceiverDashboardController(),permanent: true);
-  final EventsController eventsController = Get.find<EventsController>();
-  bool _dialogShown = false;
+  @override
+  void dispose() {
+    _moodWorker?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

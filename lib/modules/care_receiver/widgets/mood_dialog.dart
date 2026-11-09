@@ -1,4 +1,3 @@
-import 'package:elder_care/modules/care_receiver/views/schedule_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';

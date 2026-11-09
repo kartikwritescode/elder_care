@@ -7,10 +7,9 @@ import 'package:get/get.dart';
 import 'package:health/health.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/repositories/user_repository.dart';
 import '../../../core/services/fcm_service.dart';
 import '../../events/controllers/events_controller.dart';
 import '../../events/widgets/healthconnect_dialog.dart';
@@ -19,7 +18,7 @@ import 'activity_controller.dart';
 
 class ReceiverDashboardController extends GetxController {
   final SupabaseClient supabase = Supabase.instance.client;
-  final TaskController taskController = Get.put(TaskController(), permanent: true);
+  TaskController get taskController => Get.find<TaskController>();
 
   // user info
   final userName = ''.obs;
@@ -60,6 +59,7 @@ class ReceiverDashboardController extends GetxController {
   
   Timer? _locationTimer;
   bool _locationStarted = false;
+  bool _hasExitedSafeZone = false;
   final isSharingLocation = false.obs;
   final locationStatusMessage = "Initializing...".obs;
 
@@ -67,11 +67,10 @@ class ReceiverDashboardController extends GetxController {
   // STEPS
   
   StreamSubscription<StepCount>? _stepSub;
+  StreamSubscription<String>? _tokenRefreshSub;
   Timer? _stepsFlushTimer;
   bool _stepsStarted = false;
-  int _latestSteps = 0;
-  int _baselineSteps = 0;
-  String _baselineDate = "";
+  bool _isSendingSOS = false;
   
   // UI STATE
   
@@ -106,6 +105,7 @@ class ReceiverDashboardController extends GetxController {
   void onClose() {
     debugPrint("🧹 ReceiverDashboardController disposed");
     _stepSub?.cancel();
+    _tokenRefreshSub?.cancel();
     _stepsFlushTimer?.cancel();
     _locationTimer?.cancel();
     super.onClose();
@@ -127,21 +127,22 @@ class ReceiverDashboardController extends GetxController {
         return;
       }
 
-      final profile = await supabase
-          .from('users')
-          .select('full_name')
-          .eq('id', user.id)
-          .maybeSingle();
+      final userRepo = Get.isRegistered<UserRepository>()
+          ? Get.find<UserRepository>()
+          : UserRepository();
 
-      userName.value = profile?['full_name'] ?? '';
+      final profile = await userRepo.getUser(user.id);
+      userName.value = profile?.fullName ?? '';
 
-      await checkTodayMood();
-      await syncDeviceStatus();
-      await refreshDeviceConnectionStatus();
+      await Future.wait([
+        checkTodayMood(),
+        syncDeviceStatus(),
+        refreshDeviceConnectionStatus(),
+        Get.find<EventsController>().loadEventsForReceiver(user.id),
+      ]);
+
       await startAutomaticLocationSharing();
       await startStepTracking();
-      await Get.find<EventsController>()
-          .loadEventsForReceiver(user.id);
 
       debugPrint("✅ Dashboard load complete");
     } catch (e) {
@@ -262,7 +263,9 @@ class ReceiverDashboardController extends GetxController {
     if (user == null) return;
 
     final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.medium,
+      ),
     );
 
     debugPrint(
@@ -282,7 +285,6 @@ class ReceiverDashboardController extends GetxController {
     // Check Geofence on each update
     _checkSafeZone(position.latitude, position.longitude);
 
-
     debugPrint("📍 Location upload successful");
   }
 
@@ -300,15 +302,20 @@ class ReceiverDashboardController extends GetxController {
 
       final distance = Geolocator.distanceBetween(lat, lng, sLat, sLng);
       if (distance > radius) {
-        final caregiverId = await _getCaregiverId();
-        if (caregiverId != null) {
-          await FcmService.sendNotification(
-            receiverId: caregiverId,
-            title: "Safe Zone Alert!",
-            body: "The receiver has left the safe zone.",
-            type: "location_alert"
-          );
+        if (!_hasExitedSafeZone) {
+          _hasExitedSafeZone = true;
+          final caregiverId = await _getCaregiverId();
+          if (caregiverId != null) {
+            await FcmService.sendNotification(
+              receiverId: caregiverId,
+              title: "Safe Zone Alert!",
+              body: "The receiver has left the safe zone.",
+              type: "location_alert"
+            );
+          }
         }
+      } else {
+        _hasExitedSafeZone = false;
       }
     } catch (e) {
       debugPrint("Geofence check error: $e");
@@ -370,8 +377,6 @@ class ReceiverDashboardController extends GetxController {
       int steps =
           await _health.getTotalStepsInInterval(midnight, now) ?? 0;
 
-      _latestSteps = steps;
-
       debugPrint("🚶 Today's steps from Health API: $steps");
 
       final dateKey =
@@ -401,33 +406,41 @@ class ReceiverDashboardController extends GetxController {
   Future<void> sendSOS() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
+    if (_isSendingSOS) {
+      debugPrint("🚨 SOS already in progress, ignoring duplicate tap");
+      return;
+    }
+    _isSendingSOS = true;
 
     debugPrint("🚨 SEND SOS tapped by ${user.id}");
 
     try {
-      Position? position =
-          await Geolocator.getLastKnownPosition() ??
-              await Geolocator.getCurrentPosition(
-                desiredAccuracy: LocationAccuracy.high,
-                timeLimit: const Duration(seconds: 8),
-              );
-
-      if (position == null) {
-        Get.snackbar(
-          "Location unavailable",
-          "Unable to fetch location",
-          snackPosition: SnackPosition.BOTTOM,
+      Position? position;
+      try {
+        position = await Geolocator.getLastKnownPosition();
+        position ??= await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 8),
+          ),
         );
-        return;
+      } catch (locErr) {
+        debugPrint("⚠️ Could not acquire current location for SOS: $locErr");
       }
 
-      debugPrint("📍 SOS location fetched: ${position.latitude}, ${position.longitude}");
+      final double lat = position?.latitude ?? 0.0;
+      final double lng = position?.longitude ?? 0.0;
+      final String msg = position != null
+          ? 'Emergency SOS triggered'
+          : 'Emergency SOS triggered (Location unavailable)';
+
+      debugPrint("📍 SOS location: $lat, $lng");
 
       await supabase.from('sos_alerts').insert({
         'user_id': user.id,
-        'lat': position.latitude,
-        'lng': position.longitude,
-        'message': 'Emergency SOS triggered',
+        'lat': lat,
+        'lng': lng,
+        'message': msg,
         'handled': false,
       });
 
@@ -438,11 +451,13 @@ class ReceiverDashboardController extends GetxController {
           receiverId: caregiverId,
           title: "EMERGENCY SOS",
           body: "Receiver has triggered an SOS alert!",
-          type: "sos"
+          type: "sos",
         );
       }
 
-      Get.find<ActivityController>().markActive(syncToServer: false);
+      if (Get.isRegistered<ActivityController>()) {
+        Get.find<ActivityController>().markActive(syncToServer: false);
+      }
 
       Get.snackbar(
         "SOS Sent",
@@ -456,9 +471,11 @@ class ReceiverDashboardController extends GetxController {
       debugPrint("❌ SOS INSERT FAILED: $e");
       Get.snackbar(
         "Error",
-        "Failed to send SOS",
+        "Failed to send SOS. Please call emergency services directly.",
         snackPosition: SnackPosition.BOTTOM,
       );
+    } finally {
+      _isSendingSOS = false;
     }
   }
 
@@ -587,7 +604,8 @@ class ReceiverDashboardController extends GetxController {
       debugPrint("✅ FCM token saved to Supabase");
     }
 
-    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+    _tokenRefreshSub?.cancel();
+    _tokenRefreshSub = FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
       debugPrint("🔄 FCM token refreshed: $newToken");
 
       await supabase
