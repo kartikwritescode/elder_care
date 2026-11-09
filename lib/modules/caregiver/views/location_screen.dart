@@ -3,13 +3,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import '../../dashboard/controllers/nav_controller.dart';
 import '../controllers/caregiver_dashboard_controller.dart';
 import '../controllers/location_controller.dart';
 
 class LocationScreen extends StatelessWidget {
   const LocationScreen({super.key});
-
 
   @override
   Widget build(BuildContext context) {
@@ -17,23 +15,20 @@ class LocationScreen extends StatelessWidget {
 
     final CaregiverDashboardController dashboard = Get.find<CaregiverDashboardController>();
 
-
     return Obx(() {
-
       final linkedUserId = dashboard.receiverId.value;
 
-      debugPrint("🗺️ linkedReceiverId = ${linkedUserId}");
+      debugPrint("🗺️ linkedReceiverId = $linkedUserId");
 
       // Receiver not linked yet
       if (linkedUserId.isEmpty) {
-
-        return Scaffold(
+        return const Scaffold(
           body: Center(
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: const [
+                children: [
                   Icon(Icons.warning_amber_rounded,
                       size: 60, color: Colors.grey),
                   SizedBox(height: 16),
@@ -49,13 +44,15 @@ class LocationScreen extends StatelessWidget {
         );
       }
 
-      //  receiver IS linked → create controller
-      final controller = Get.put(
-        LocationController(linkedUserId: linkedUserId),
-        tag: linkedUserId,
-      );
+      // receiver IS linked → get or create controller
+      final controller = Get.isRegistered<LocationController>(tag: linkedUserId)
+          ? Get.find<LocationController>(tag: linkedUserId)
+          : Get.put(
+              LocationController(linkedUserId: linkedUserId),
+              tag: linkedUserId,
+            );
 
-      return _LocationMapUI(controller);
+      return _buildLocationMapUI(controller);
     });
   }
 
@@ -100,8 +97,8 @@ class LocationScreen extends StatelessWidget {
           center: c.safeCenter.value!,
           radius: c.safeRadius.value.toDouble(),
           strokeWidth: 2,
-          strokeColor: Colors.teal.withOpacity(0.7),
-          fillColor: Colors.teal.withOpacity(0.18),
+          strokeColor: Colors.teal.withValues(alpha: 0.7),
+          fillColor: Colors.teal.withValues(alpha: 0.18),
         ),
       );
     }
@@ -201,7 +198,7 @@ class LocationScreen extends StatelessWidget {
       ).round();
 
       return Card(
-        color: Colors.black.withOpacity(0.7),
+        color: Colors.black.withValues(alpha: 0.7),
         child: Padding(
           padding: const EdgeInsets.symmetric(
               horizontal: 14, vertical: 10),
@@ -338,7 +335,7 @@ class LocationScreen extends StatelessWidget {
       }),
     );
   }
-  Widget _LocationMapUI(LocationController controller) {
+  Widget _buildLocationMapUI(LocationController controller) {
     return Scaffold(
       extendBodyBehindAppBar: true,
       body: Stack(
@@ -402,12 +399,12 @@ class LocationScreen extends StatelessWidget {
                   horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(18),
-                color: Colors.white.withOpacity(0.75),
-                boxShadow: [
+                color: Colors.white.withValues(alpha: 0.75),
+                boxShadow: const [
                   BoxShadow(
                     color: Colors.black12,
                     blurRadius: 10,
-                    offset: const Offset(0, 4),
+                    offset: Offset(0, 4),
                   )
                 ],
               ),
@@ -419,7 +416,7 @@ class LocationScreen extends StatelessWidget {
                     onTap: () => Get.back(),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: const Color(0xFF7AB7A7).withOpacity(0.2),
+                        color: const Color(0xFF7AB7A7).withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       padding: const EdgeInsets.all(6),
@@ -441,7 +438,7 @@ class LocationScreen extends StatelessWidget {
                     onTap: () => controller.fetchLocation(isRefresh: true),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: const Color(0xFF7AB7A7).withOpacity(0.2),
+                        color: const Color(0xFF7AB7A7).withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       padding: const EdgeInsets.all(6),

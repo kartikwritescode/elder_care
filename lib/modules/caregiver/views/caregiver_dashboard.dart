@@ -1,84 +1,103 @@
 
-  import 'package:elder_care/modules/care_receiver/controllers/activity_controller.dart';
-import 'package:elder_care/modules/care_receiver/widgets/reciever_status_chip.dart';
-import 'package:flutter/foundation.dart';
-  import 'package:flutter/gestures.dart';
-  import 'package:flutter/material.dart';
-  import 'package:get/get.dart';
-  import 'package:google_fonts/google_fonts.dart';
-  import 'package:google_maps_flutter/google_maps_flutter.dart';
-  import '../../events/views/eventssection.dart';
-  import '../../tasks/controllers/task_controller.dart';
-  import '../widgets/caregiver_map.dart';
+import 'package:elder_care/modules/care_receiver/controllers/activity_controller.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../../../app/widgets/app_cached_image.dart';
+import '../../events/views/eventssection.dart';
+import '../../tasks/controllers/task_controller.dart';
+import '../widgets/caregiver_map.dart';
 import '../widgets/healthstatussection.dart';
-  import '../../tasks/views/task_section.dart';
-  import '../controllers/caregiver_dashboard_controller.dart';
-  import '../widgets/statussection.dart';
+import '../../tasks/views/task_section.dart';
+import '../controllers/caregiver_dashboard_controller.dart';
+import '../widgets/statussection.dart';
 
-  class CaregiverDashboard extends StatefulWidget {
-    CaregiverDashboard({super.key});
+class CaregiverDashboard extends StatefulWidget {
+  const CaregiverDashboard({super.key});
 
-    @override
-    State<CaregiverDashboard> createState() => _CaregiverDashboardState();
-  }
+  @override
+  State<CaregiverDashboard> createState() => _CaregiverDashboardState();
+}
 
-  class _CaregiverDashboardState extends State<CaregiverDashboard> {
-    final activity = Get.put(ActivityController());
+class _CaregiverDashboardState extends State<CaregiverDashboard> {
+  final activity = Get.isRegistered<ActivityController>()
+      ? Get.find<ActivityController>()
+      : Get.put(ActivityController());
 
-    // final controller = Get.put(CaregiverDashboardController());
-    final controller = Get.find<CaregiverDashboardController>();
-    // final TaskController taskController = Get.put(TaskController());
-    final TaskController taskController = Get.find<TaskController>();
+  final controller = Get.find<CaregiverDashboardController>();
+  final TaskController taskController = Get.find<TaskController>();
 
+  Worker? _receiverWorker;
 
-    @override
-    void initState() {
-      super.initState();
-      debugPrint("🖥️ CaregiverDashboard initState");
-      debugPrint("🖥️ receiverId at init: ${controller.receiverId.value}");
+  @override
+  void initState() {
+    super.initState();
+    debugPrint("🖥️ CaregiverDashboard initState");
+    debugPrint("🖥️ receiverId at init: ${controller.receiverId.value}");
 
-
-
-      // 1️⃣ If receiverId is ALREADY available
-      final rid = controller.receiverId.value;
-      if (rid != null && rid.isNotEmpty) {
-        taskController.loadTasksForReceiver(rid);
-      }
-
-      // 2️⃣ If receiverId comes LATER
-      ever<String?>(controller.receiverId, (rid) {
-        debugPrint("🖥️ Dashboard saw receiverId change → $rid");
-
-        if (rid == null || rid.isEmpty) return;
-
-        if (taskController.currentReceiverId != rid) {
-          taskController.loadTasksForReceiver(rid);
-        }
-      });
+    // 1️⃣ If receiverId is ALREADY available
+    final rid = controller.receiverId.value;
+    if (rid.isNotEmpty) {
+      taskController.loadTasksForReceiver(rid);
     }
 
+    // 2️⃣ If receiverId comes LATER
+    _receiverWorker = ever<String?>(controller.receiverId, (rid) {
+      debugPrint("🖥️ Dashboard saw receiverId change → $rid");
 
-    @override
-    Widget build(BuildContext context) {
-      debugPrint("🖥️ CaregiverDashboard BUILD");
-      debugPrint("🖥️ receiverId=${controller.receiverId.value}");
-      debugPrint("🖥️ isMapReady=${controller.isMapReady.value}");
+      if (rid == null || rid.isEmpty) return;
 
-      final receiverId = controller.receiverId.value;
-      final srch=Get.height;
-      final srcw=Get.width;
-      return Scaffold(
-        backgroundColor: Colors.white,
-        body: Obx(() {
-          if (controller.receiverId.value.isEmpty) {
-            return const Center(
-              child: CircularProgressIndicator(),
+      if (taskController.currentReceiverId != rid) {
+        taskController.loadTasksForReceiver(rid);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _receiverWorker?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    debugPrint("🖥️ CaregiverDashboard BUILD");
+    debugPrint("🖥️ receiverId=${controller.receiverId.value}");
+    debugPrint("🖥️ isMapReady=${controller.isMapReady.value}");
+
+    final srch = Get.height;
+    final srcw = Get.width;
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Obx(() {
+        if (controller.receiverId.value.isEmpty) {
+          if (!controller.isLoading.value) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.person_off_outlined, size: 60, color: Colors.grey),
+                    const SizedBox(height: 16),
+                    Text(
+                      "No care receiver linked yet.",
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.nunito(fontSize: 18, color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ),
             );
           }
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
 
-            if (!controller.isMapReady.value) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        if (!controller.isMapReady.value) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
           return SingleChildScrollView(
             padding: EdgeInsets.only(
@@ -87,10 +106,9 @@ import '../widgets/healthstatussection.dart';
             child: Column(
               children: [
                 // =================== MAP + PANEL STACK ===================
-                Container(
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
                       // MAP
                       SizedBox(
                         height: Get.height * 0.42,
@@ -206,13 +224,23 @@ import '../widgets/healthstatussection.dart';
                             borderRadius: BorderRadius.circular(16),
                             child: controller.profileUrl.value.isEmpty
                                 ? Image.asset("assets/images/def_png.png", fit: BoxFit.cover)
-                                : Image.network(controller.profileUrl.value, fit: BoxFit.cover),
+                                : AppCachedImage(
+                                    imageUrl: controller.profileUrl.value,
+                                    fit: BoxFit.cover,
+                                    width: 85,
+                                    height: 85,
+                                    memCacheWidth: 200,
+                                    memCacheHeight: 200,
+                                    errorWidget: Image.asset(
+                                      "assets/images/def_png.png",
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
                           ),
                         ),
                       ),
                     ],
                   ),
-                ),
 
                 // const SizedBox(height: 30),
                 SizedBox(height:srch*0.01),

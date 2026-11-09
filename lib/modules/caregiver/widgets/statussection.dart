@@ -5,9 +5,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../care_receiver/controllers/activity_controller.dart';
 import '../controllers/caregiver_dashboard_controller.dart';
 
-final controller = Get.find<CaregiverDashboardController>();
-final activity = Get.find<ActivityController>();
-
 class StatusSection extends StatefulWidget {
   const StatusSection({super.key});
 
@@ -16,6 +13,8 @@ class StatusSection extends StatefulWidget {
 }
 
 class _StatusSectionState extends State<StatusSection> {
+  CaregiverDashboardController get controller => Get.find<CaregiverDashboardController>();
+  ActivityController? get activity => Get.isRegistered<ActivityController>() ? Get.find<ActivityController>() : null;
   final now = DateTime.now().obs;
   Timer? _ticker;
 

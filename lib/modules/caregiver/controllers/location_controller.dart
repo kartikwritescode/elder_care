@@ -57,10 +57,15 @@ class LocationController extends GetxController {
       return;
     }
     final diff = DateTime.now().difference(lastUpdatedAt.value!);
-    if (diff.inMinutes < 1) timeAgo.value = 'Updated just now';
-    else if (diff.inMinutes < 60) timeAgo.value = 'Updated ${diff.inMinutes} minute(s) ago';
-    else if (diff.inHours < 24) timeAgo.value = 'Updated ${diff.inHours} hour(s) ago';
-    else timeAgo.value = 'Updated ${diff.inDays} day(s) ago';
+    if (diff.inMinutes < 1) {
+      timeAgo.value = 'Updated just now';
+    } else if (diff.inMinutes < 60) {
+      timeAgo.value = 'Updated ${diff.inMinutes} minute(s) ago';
+    } else if (diff.inHours < 24) {
+      timeAgo.value = 'Updated ${diff.inHours} hour(s) ago';
+    } else {
+      timeAgo.value = 'Updated ${diff.inDays} day(s) ago';
+    }
   }
 
   /// Call when map is created

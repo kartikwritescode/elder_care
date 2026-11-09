@@ -7,15 +7,16 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:pedometer/pedometer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/repositories/user_repository.dart';
+import '../../../core/services/cache_service.dart';
 import '../../../core/services/emergency_alert_service.dart';
 import '../../dashboard/controllers/nav_controller.dart';
 import '../../tasks/controllers/task_controller.dart';
 
 class CaregiverDashboardController extends GetxController {
 
-  final TaskController taskController = Get.put(TaskController(), permanent: true);
+  TaskController get taskController => Get.find<TaskController>();
   final supabase = Supabase.instance.client;
   // ----------------------------- VITAL HISTORY FOR CHARTS -----------------------------
   RxList<double> heartRateHistory = <double>[80, 82, 81, 83, 85].obs;
@@ -43,6 +44,9 @@ class CaregiverDashboardController extends GetxController {
   final RxString heartRate = "--".obs;
   final RxString oxygen = "--".obs;
   final RxBool fallDetected = false.obs;
+  final Rxn<DateTime> lastVitalsUpdate = Rxn<DateTime>();
+  final RxBool isVitalsStale = false.obs;
+  final RxString vitalsStatusMessage = "".obs;
 
   // ----------------------------- DEVICE STATUS ---------------------------
   final RxBool fitbitConnected = false.obs;
@@ -57,6 +61,8 @@ class CaregiverDashboardController extends GetxController {
   GoogleMapController? mapCtrl;
   RealtimeChannel? locationChannel;
   RealtimeChannel? vitalsChannel;
+  RealtimeChannel? stepsChannel;
+  RealtimeChannel? sosChannel;
 
   @override
   void onInit() {
@@ -85,6 +91,7 @@ class CaregiverDashboardController extends GetxController {
   void onClose() {
     locationChannel?.unsubscribe();
     vitalsChannel?.unsubscribe();
+    stepsChannel?.unsubscribe();
     sosChannel?.unsubscribe();
     super.onClose();
   }
@@ -178,12 +185,14 @@ class CaregiverDashboardController extends GetxController {
       debugPrint("🧑‍🦳 Receiver ID linked: ${receiverId.value}");
 
 
-      await fetchReceiverProfile();
-      await fetchReceiverMood();
-      await fetchDeviceStatus();
-      await fetchLatestLocation();
-      await fetchLatestVitals();
-      await fetchLatestSteps();
+      await Future.wait([
+        fetchReceiverProfile(),
+        fetchReceiverMood(),
+        fetchDeviceStatus(),
+        fetchLatestLocation(),
+        fetchLatestVitals(),
+        fetchLatestSteps(),
+      ]);
 
 
       subscribeToSOS();
@@ -205,14 +214,14 @@ class CaregiverDashboardController extends GetxController {
   Future<void> fetchReceiverProfile() async {
     if (receiverId.value.isEmpty) return;
 
-    final data = await supabase
-        .from("users")
-        .select("full_name, profile_image")
-        .eq("id", receiverId.value)
-        .maybeSingle();
+    final userRepo = Get.isRegistered<UserRepository>()
+        ? Get.find<UserRepository>()
+        : UserRepository();
 
-    name.value = data?["full_name"] ?? "Unknown Receiver";
-    profileUrl.value = data?["profile_image"] ?? "";
+    final user = await userRepo.getUser(receiverId.value);
+
+    name.value = user?.fullName ?? "Unknown Receiver";
+    profileUrl.value = user?.profileImage ?? "";
   }
 
    
@@ -226,8 +235,7 @@ class CaregiverDashboardController extends GetxController {
     }
 
     try {
-      // try primary table (your dashboard used user_locations)
-      var row = await supabase
+      final row = await supabase
           .from('user_locations')
           .select('latitude, longitude, updated_at')
           .eq('user_id', receiverId.value)
@@ -235,19 +243,7 @@ class CaregiverDashboardController extends GetxController {
           .limit(1)
           .maybeSingle();
 
-      // fallback to 'locations' if nothing found (match your LocationService)
-      if (row == null) {
-        print('fetchLatestLocation: no row in user_locations, trying locations table');
-        row = await supabase
-            .from('user_locations')
-            .select('latitude, longitude, updated_at')
-            .eq('user_id', receiverId.value)
-            .order('updated_at', ascending: false)
-            .limit(1)
-            .maybeSingle();
-      }
-
-      print('fetchLatestLocation raw: $row');
+      debugPrint('fetchLatestLocation raw: $row');
 
       if (row == null) {
         // no location: still allow UI to load
@@ -256,24 +252,24 @@ class CaregiverDashboardController extends GetxController {
       }
 
       // Support multiple possible key names safely
-      double? _lat;
-      double? _lng;
+      double? targetLat;
+      double? targetLng;
       if (row['latitude'] != null && row['longitude'] != null) {
-        _lat = (row['latitude'] as num).toDouble();
-        _lng = (row['longitude'] as num).toDouble();
+        targetLat = (row['latitude'] as num).toDouble();
+        targetLng = (row['longitude'] as num).toDouble();
       } else if (row['lat'] != null && row['lng'] != null) {
-        _lat = (row['lat'] as num).toDouble();
-        _lng = (row['lng'] as num).toDouble();
+        targetLat = (row['lat'] as num).toDouble();
+        targetLng = (row['lng'] as num).toDouble();
       }
 
-      if (_lat == null || _lng == null) {
-        print('fetchLatestLocation: coordinates missing in row');
+      if (targetLat == null || targetLng == null) {
+        debugPrint('fetchLatestLocation: coordinates missing in row');
         isMapReady.value = true;
         return;
       }
 
-      lat.value = _lat;
-      lng.value = _lng;
+      lat.value = targetLat;
+      lng.value = targetLng;
 
       final updated = row['updated_at']?.toString();
       if (updated != null) {
@@ -320,8 +316,6 @@ class CaregiverDashboardController extends GetxController {
       ),
       callback: (payload) {
         final newRow = payload.newRecord;
-        print('realtime user_locations payload: $newRow');
-        if (newRow == null) return;
         // reuse parsing logic from fetchLatestLocation
         final latVal = (newRow['latitude'] as num?) ?? (newRow['lat'] as num?);
         final lngVal = (newRow['longitude'] as num?) ?? (newRow['lng'] as num?);
@@ -352,54 +346,107 @@ class CaregiverDashboardController extends GetxController {
    
   Future<void> fetchLatestVitals() async {
     if (receiverId.value.isEmpty) {
-      print("fetchLatestVitals: NO RECEIVER ID");
+      debugPrint("fetchLatestVitals: NO RECEIVER ID");
       return;
     }
 
-    print("fetchLatestVitals: fetching vitals for ${receiverId.value}");
+    final cacheKey = CacheService.userKey(receiverId.value, 'vitals');
 
-    final rows = await supabase
-        .from("health_vitals")
-        .select()
-        .eq("user_id", receiverId.value)
-        .order("timestamp", ascending: false);
+    // 1. Load cached vitals first for instant display / offline support
+    final cached = CacheService.instance.get<Map<String, dynamic>>(
+      cacheKey,
+      fromJson: (json) => Map<String, dynamic>.from(json as Map),
+    );
 
-    print("Vitals fetched: $rows"/**/);
+    if (cached != null) {
+      final data = cached.data;
+      if (data['heart_rate'] != null) heartRate.value = data['heart_rate'].toString();
+      if (data['oxygen'] != null) oxygen.value = data['oxygen'].toString();
+      if (data['fall_detected'] != null) fallDetected.value = data['fall_detected'] == true;
+      if (data['timestamp'] != null) {
+        lastVitalsUpdate.value = DateTime.tryParse(data['timestamp'].toString())?.toLocal();
+      }
+      _checkVitalsFreshness();
+    }
 
-    if (rows.isEmpty) {
-      print("❌ No vitals found for this receiver");
+    try {
+      final rows = await supabase
+          .from("health_vitals")
+          .select()
+          .eq("user_id", receiverId.value)
+          .order("timestamp", ascending: false)
+          .limit(20);
+
+      if (rows.isEmpty) {
+        return;
+      }
+
+      Map<String, dynamic> latest = {};
+      for (var row in rows) {
+        if (!latest.containsKey(row["type"])) latest[row["type"]] = row;
+      }
+
+      String? latestTimestamp;
+
+      // HEART
+      if (latest["heart_rate"]?["value"] != null) {
+        double hr = (latest["heart_rate"]["value"] as num).toDouble();
+        heartRate.value = hr.toString();
+        latestTimestamp ??= latest["heart_rate"]["timestamp"]?.toString();
+      }
+
+      // OXYGEN
+      if (latest["oxygen"]?["value"] != null) {
+        double oxy = (latest["oxygen"]["value"] as num).toDouble();
+        oxygen.value = oxy.toString();
+        latestTimestamp ??= latest["oxygen"]["timestamp"]?.toString();
+      }
+
+      // FALL
+      if (latest["fall_detected"]?["value"] != null) {
+        fallDetected.value = latest["fall_detected"]["value"] == 1;
+        latestTimestamp ??= latest["fall_detected"]["timestamp"]?.toString();
+      }
+
+      if (latestTimestamp != null) {
+        lastVitalsUpdate.value = DateTime.tryParse(latestTimestamp)?.toLocal();
+      } else {
+        lastVitalsUpdate.value = DateTime.now();
+      }
+
+      _checkVitalsFreshness();
+
+      // Persist latest readings to cache
+      await CacheService.instance.set(cacheKey, {
+        'heart_rate': heartRate.value,
+        'oxygen': oxygen.value,
+        'fall_detected': fallDetected.value,
+        'timestamp': lastVitalsUpdate.value?.toUtc().toIso8601String(),
+      });
+    } catch (e) {
+      debugPrint("fetchLatestVitals network warning: $e");
+      isVitalsStale.value = true;
+      vitalsStatusMessage.value = "Offline • Cached data";
+    }
+  }
+
+  void _checkVitalsFreshness() {
+    if (lastVitalsUpdate.value == null) {
+      isVitalsStale.value = true;
+      vitalsStatusMessage.value = "";
       return;
     }
-
-    Map<String, dynamic> latest = {};
-
-    for (var row in rows) {
-      if (!latest.containsKey(row["type"])) latest[row["type"]] = row;
-    }
-
-    print("Latest vitals map: $latest");
-
-    // HEART
-    if (latest["heart_rate"]?["value"] != null) {
-      double hr = (latest["heart_rate"]["value"] as num).toDouble();
-      heartRate.value = hr.toString();
+    final diff = DateTime.now().difference(lastVitalsUpdate.value!);
+    if (diff.inMinutes > 15) {
+      isVitalsStale.value = true;
+      if (diff.inHours >= 1) {
+        vitalsStatusMessage.value = "Stale • ${diff.inHours}h ago";
+      } else {
+        vitalsStatusMessage.value = "Stale • ${diff.inMinutes}m ago";
+      }
     } else {
-      print("❌ No heart_rate in latest records");
-    }
-
-    // OXYGEN
-    if (latest["oxygen"]?["value"] != null) {
-      double oxy = (latest["oxygen"]["value"] as num).toDouble();
-      oxygen.value = oxy.toString();
-    } else {
-      print("❌ No oxygen in latest records");
-    }
-
-    // FALL
-    if (latest["fall_detected"]?["value"] != null) {
-      fallDetected.value = latest["fall_detected"]["value"] == 1;
-    } else {
-      print("❌ No fall_detected record");
+      isVitalsStale.value = false;
+      vitalsStatusMessage.value = "Live";
     }
   }
 
@@ -427,7 +474,6 @@ class CaregiverDashboardController extends GetxController {
       ),
       callback: (payload) {
         final row = payload.newRecord;
-        if (row == null) return;
 
         switch (row["type"]) {
           case "heart_rate":
@@ -450,6 +496,10 @@ class CaregiverDashboardController extends GetxController {
             fallDetected.value = row["value"] == 1;
             break;
         }
+
+        lastVitalsUpdate.value = DateTime.now();
+        isVitalsStale.value = false;
+        vitalsStatusMessage.value = "Live";
       },
     ).subscribe();
   }
@@ -463,19 +513,6 @@ class CaregiverDashboardController extends GetxController {
     isMapReady.value = true;
 
     _animateMap(); // safe now
-  }
-
-
-  void _moveCamera() {
-    if (mapCtrl == null) return;
-    if (lat.value == 0.0 || lng.value == 0.0) return;
-
-    mapCtrl!.animateCamera(
-      CameraUpdate.newLatLngZoom(
-        LatLng(lat.value, lng.value),
-        15,
-      ),
-    );
   }
 
    
@@ -589,21 +626,24 @@ class CaregiverDashboardController extends GetxController {
         .from("steps_data")
         .select("steps")
         .eq("user_id", receiverId.value)
-        .order("timestamp", ascending: false)
+        .order("updated_at", ascending: false)
         .limit(1)
         .maybeSingle();
 
-    if (row != null) {
+    if (row != null && row["steps"] != null) {
       steps.value = row["steps"].toString();
     }
   }
+
   void subscribeToStepsRealtime() {
     if (receiverId.value.isEmpty) return;
 
-    final channel = supabase.channel("steps_${receiverId.value}");
+    try { stepsChannel?.unsubscribe(); } catch (_) {}
 
-    channel.onPostgresChanges(
-      event: PostgresChangeEvent.insert,
+    stepsChannel = supabase.channel("steps_${receiverId.value}");
+
+    stepsChannel!.onPostgresChanges(
+      event: PostgresChangeEvent.all,
       schema: "public",
       table: "steps_data",
       filter: PostgresChangeFilter(
@@ -613,13 +653,14 @@ class CaregiverDashboardController extends GetxController {
       ),
       callback: (payload) {
         final newSteps = payload.newRecord["steps"];
-        steps.value = newSteps.toString();
+        if (newSteps != null) {
+          steps.value = newSteps.toString();
+        }
       },
     ).subscribe();
   }
 
 // sos implementation
-  RealtimeChannel? sosChannel;
 
   void subscribeToSOS() {
     if (receiverId.value.isEmpty) {

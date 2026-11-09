@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../controllers/care_link_controller.dart';
 
 class CareLinkScreen extends StatelessWidget {
-  CareLinkScreen({Key? key}) : super(key: key);
+  CareLinkScreen({super.key});
 
-  final CareLinkController controller = Get.put(CareLinkController());
+  final CareLinkController controller = Get.isRegistered<CareLinkController>()
+      ? Get.find<CareLinkController>()
+      : Get.put(CareLinkController());
 
   @override
   Widget build(BuildContext context) {
