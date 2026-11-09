@@ -63,6 +63,7 @@ class CaregiverDashboardController extends GetxController {
   RealtimeChannel? vitalsChannel;
   RealtimeChannel? stepsChannel;
   RealtimeChannel? sosChannel;
+  StreamSubscription<String>? _tokenRefreshSub;
 
   @override
   void onInit() {
@@ -89,10 +90,26 @@ class CaregiverDashboardController extends GetxController {
 
   @override
   void onClose() {
-    locationChannel?.unsubscribe();
-    vitalsChannel?.unsubscribe();
-    stepsChannel?.unsubscribe();
-    sosChannel?.unsubscribe();
+    _tokenRefreshSub?.cancel();
+    _cleanupLocationChannel();
+    try {
+      if (vitalsChannel != null) {
+        vitalsChannel!.unsubscribe();
+        supabase.removeChannel(vitalsChannel!);
+      }
+    } catch (_) {}
+    try {
+      if (stepsChannel != null) {
+        stepsChannel!.unsubscribe();
+        supabase.removeChannel(stepsChannel!);
+      }
+    } catch (_) {}
+    try {
+      if (sosChannel != null) {
+        sosChannel!.unsubscribe();
+        supabase.removeChannel(sosChannel!);
+      }
+    } catch (_) {}
     super.onClose();
   }
 
@@ -293,48 +310,48 @@ class CaregiverDashboardController extends GetxController {
 
 
    
-  // SUBSCRIBE REALTIME LOCATION
+  // SUBSCRIBE REALTIME LOCATION (WEBSOCKET BROADCAST - 0% DB CPU)
    
   void subscribeToLocationRealtime() {
     if (receiverId.value.isEmpty) return;
 
-    try { locationChannel?.unsubscribe(); } catch (_) {}
+    _cleanupLocationChannel();
 
-    // subscribe to both possible tables by creating two channels or pick the right one:
-    final channelName = 'locations_${receiverId.value}';
-    locationChannel = supabase.channel(channelName, opts: const RealtimeChannelConfig());
+    final channelName = 'tracking:${receiverId.value}';
+    locationChannel = supabase.channel(channelName);
 
     locationChannel!
-        .onPostgresChanges(
-      event: PostgresChangeEvent.update,
-      schema: 'public',
-      table: 'user_locations', // keep user_locations if primary
-      filter: PostgresChangeFilter(
-        type: PostgresChangeFilterType.eq,
-        column: 'user_id',
-        value: receiverId.value,
-      ),
+        .onBroadcast(
+      event: 'location_update',
       callback: (payload) {
-        final newRow = payload.newRecord;
-        // reuse parsing logic from fetchLatestLocation
-        final latVal = (newRow['latitude'] as num?) ?? (newRow['lat'] as num?);
-        final lngVal = (newRow['longitude'] as num?) ?? (newRow['lng'] as num?);
+        debugPrint("📡 Broadcast location received: $payload");
+        final latVal = (payload['latitude'] as num?) ?? (payload['lat'] as num?);
+        final lngVal = (payload['longitude'] as num?) ?? (payload['lng'] as num?);
         if (latVal != null && lngVal != null) {
           lat.value = latVal.toDouble();
           lng.value = lngVal.toDouble();
 
-          final updated = newRow['updated_at']?.toString();
-          if (updated != null) {
-            lastLocationUpdate.value = DateTime.parse(updated).toLocal();
-            lastLocationRefresh.value = _formatTimeAgo(updated);
-          }
+          final updated = payload['updated_at']?.toString() ??
+              DateTime.now().toUtc().toIso8601String();
+          lastLocationUpdate.value =
+              DateTime.tryParse(updated)?.toLocal() ?? DateTime.now();
+          lastLocationRefresh.value = _formatTimeAgo(updated);
+
           if (!isMapReady.value) isMapReady.value = true;
           _animateMap();
         }
       },
     ).subscribe();
+  }
 
-
+  void _cleanupLocationChannel() {
+    if (locationChannel != null) {
+      try {
+        locationChannel!.unsubscribe();
+        supabase.removeChannel(locationChannel!);
+      } catch (_) {}
+      locationChannel = null;
+    }
   }
 
 
@@ -782,24 +799,48 @@ class CaregiverDashboardController extends GetxController {
 
     debugPrint("🔥 FCM TOKEN: $token");
 
-    if (token != null) {
+    final cacheKey = CacheService.userKey(userId, 'fcm_token');
+    String? cachedToken;
+    try {
+      cachedToken = CacheService.instance.get<String>(cacheKey)?.data;
+    } catch (_) {}
+
+    if (token != null && token.isNotEmpty && token != cachedToken) {
       await supabase
           .from('users')
           .update({'fcm_token': token})
           .eq('id', userId);
 
-      debugPrint("✅ FCM token saved to Supabase");
+      try {
+        await CacheService.instance.set(cacheKey, token);
+      } catch (_) {}
+
+      debugPrint("✅ FCM token saved to Supabase and cached");
+    } else {
+      debugPrint("ℹ️ FCM token unchanged or empty; skipping update");
     }
 
-    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+    _tokenRefreshSub?.cancel();
+    _tokenRefreshSub = FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
       debugPrint("🔄 FCM token refreshed: $newToken");
 
-      await supabase
-          .from('users')
-          .update({'fcm_token': newToken})
-          .eq('id', userId);
+      String? currentCached;
+      try {
+        currentCached = CacheService.instance.get<String>(cacheKey)?.data;
+      } catch (_) {}
 
-      debugPrint("✅ Updated refreshed token in Supabase");
+      if (newToken.isNotEmpty && newToken != currentCached) {
+        await supabase
+            .from('users')
+            .update({'fcm_token': newToken})
+            .eq('id', userId);
+
+        try {
+          await CacheService.instance.set(cacheKey, newToken);
+        } catch (_) {}
+
+        debugPrint("✅ Updated refreshed token in Supabase and cache");
+      }
     });
   }
   Future<void> _refreshTasks() async {

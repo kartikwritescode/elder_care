@@ -3,11 +3,15 @@ import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ActivityController extends GetxController {
-  final SupabaseClient supabase = Supabase.instance.client;
+  final SupabaseClient? _supabase;
+  SupabaseClient get supabase => _supabase ?? Supabase.instance.client;
+
+  ActivityController({SupabaseClient? supabase}) : _supabase = supabase;
 
   // CONFIG
   static const Duration onlineThreshold = Duration(minutes: 3);
   static const Duration watcherInterval = Duration(seconds: 30);
+  static const Duration minSyncInterval = Duration(minutes: 2);
 
   // STATE
   final RxBool isOnline = false.obs;
@@ -15,6 +19,8 @@ class ActivityController extends GetxController {
 
   DateTime? _lastActivityAt;
   DateTime? get lastActivityAt => _lastActivityAt;
+  DateTime? _lastSyncedAt;
+  DateTime? get lastSyncedAt => _lastSyncedAt;
   Timer? _watcher;
 
   @override
@@ -29,6 +35,11 @@ class ActivityController extends GetxController {
     super.onClose();
   }
 
+  /// Inform the controller that a server sync was performed externally (e.g. combined with location update)
+  void recordServerSync([DateTime? at]) {
+    _lastSyncedAt = at ?? DateTime.now();
+  }
+
   // 🔥 CALL THIS ON ANY ACTIVITY
   Future<void> markActive({bool syncToServer = true}) async {
     final now = DateTime.now();
@@ -38,7 +49,11 @@ class ActivityController extends GetxController {
     lastSeenText.value = 'Online';
 
     if (syncToServer) {
-      await _syncToSupabase(now);
+      if (_lastSyncedAt == null ||
+          now.difference(_lastSyncedAt!) >= minSyncInterval) {
+        _lastSyncedAt = now;
+        await _syncToSupabase(now);
+      }
     }
   }
 
@@ -104,12 +119,14 @@ class ActivityController extends GetxController {
   }
 
   Future<void> _syncToSupabase(DateTime at) async {
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
+    try {
+      final user = supabase.auth.currentUser;
+      if (user == null) return;
 
-    await supabase.from('user_locations').upsert({
-      'user_id': user.id,
-      'last_activity_at': at.toUtc().toIso8601String(),
-    }, onConflict: 'user_id');
+      await supabase.from('user_locations').upsert({
+        'user_id': user.id,
+        'last_activity_at': at.toUtc().toIso8601String(),
+      }, onConflict: 'user_id');
+    } catch (_) {}
   }
 }

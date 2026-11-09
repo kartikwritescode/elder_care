@@ -37,6 +37,7 @@ class _MainScaffoldState extends State<MainScaffold> {
 
   late final List<Widget> caregiverScreens;
   late final List<Widget> receiverScreens;
+  final Set<int> _activatedTabs = {0};
 
   @override
   void initState() {
@@ -160,9 +161,17 @@ class _MainScaffoldState extends State<MainScaffold> {
       // backgroundColor: const Color(0xFF121212),
 
       body: Obx(() {
+        final currentIndex = navController.selectedIndex.value;
+        _activatedTabs.add(currentIndex);
+
         return IndexedStack(
-          index: navController.selectedIndex.value,
-          children: screens,
+          index: currentIndex,
+          children: List.generate(screens.length, (i) {
+            if (_activatedTabs.contains(i)) {
+              return screens[i];
+            }
+            return const SizedBox.shrink();
+          }),
         );
       }),
 

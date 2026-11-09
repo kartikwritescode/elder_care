@@ -4,9 +4,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/message_model.dart';
 import '../../../core/services/fcm_service.dart';
 import '../../auth/controllers/auth_controller.dart';
+import '../../dashboard/controllers/nav_controller.dart';
 
 class ChatController extends GetxController {
-  final SupabaseClient supabase = Supabase.instance.client;
+  final SupabaseClient? _supabase;
+  SupabaseClient get supabase => _supabase ?? Supabase.instance.client;
+
+  ChatController({SupabaseClient? supabase}) : _supabase = supabase;
 
   final messages = <MessageModel>[].obs;
   final loading = true.obs;
@@ -21,6 +25,7 @@ class ChatController extends GetxController {
 
   RealtimeChannel? _channel;
   bool _isSending = false;
+  Worker? _navWorker;
 
   void initChat({
     required String chatId,
@@ -36,11 +41,49 @@ class ChatController extends GetxController {
     _loadMessages();
     _subscribe();
     _markMessagesAsSeen();
+    _setupNavListener();
+  }
+
+  void _setupNavListener() {
+    _navWorker?.dispose();
+    if (Get.isRegistered<NavController>()) {
+      final nav = Get.find<NavController>();
+      _navWorker = ever<int>(nav.selectedIndex, (index) {
+        if (index == 1) {
+          resumeRealtime();
+        } else {
+          unsubscribeRealtime();
+        }
+      });
+    }
+  }
+
+  void unsubscribeRealtime() {
+    if (_channel != null) {
+      debugPrint("🔌 [ChatController] Unsubscribing from Realtime channel: chat:$_chatId");
+      try {
+        _channel!.unsubscribe();
+        supabase.removeChannel(_channel!);
+      } catch (e) {
+        debugPrint("Error removing chat channel: $e");
+      }
+      _channel = null;
+    }
+  }
+
+  void resumeRealtime() {
+    if (_chatId == null) return;
+    if (_channel != null) return;
+    debugPrint("🔌 [ChatController] Re-subscribing to Realtime channel: chat:$_chatId");
+    _loadMessages();
+    _subscribe();
+    _markMessagesAsSeen();
   }
 
   @override
   void onClose() {
-    _channel?.unsubscribe();
+    _navWorker?.dispose();
+    unsubscribeRealtime();
     _chatId = null;
     _partnerId = null;
     super.onClose();

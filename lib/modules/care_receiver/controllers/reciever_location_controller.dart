@@ -25,9 +25,26 @@ class ReceiverLocationController extends GetxController {
     _startTracking();
   }
 
-  void _startTracking() {
+  bool _isDashboardHandlingLocation() {
     if (Get.isRegistered<ReceiverDashboardController>()) {
+      final dashboard = Get.find<ReceiverDashboardController>();
+      return !dashboard.isClosed;
+    }
+    return false;
+  }
+
+  void cancelTrackingIfDashboardActive() {
+    if (_isDashboardHandlingLocation()) {
+      _locationTimer?.cancel();
+      _locationTimer = null;
+    }
+  }
+
+  void _startTracking() {
+    if (_isDashboardHandlingLocation()) {
       // ReceiverDashboardController already manages location updates with geofencing
+      _locationTimer?.cancel();
+      _locationTimer = null;
       return;
     }
     // update immediately once
@@ -36,7 +53,14 @@ class ReceiverLocationController extends GetxController {
     // then every 2 minutes
     _locationTimer = Timer.periodic(
       const Duration(minutes: 2),
-      (_) => _locationService.updateLocationInSupabase(),
+      (timer) {
+        if (_isDashboardHandlingLocation()) {
+          timer.cancel();
+          _locationTimer = null;
+          return;
+        }
+        _locationService.updateLocationInSupabase();
+      },
     );
   }
 

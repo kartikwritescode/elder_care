@@ -3,18 +3,39 @@ import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/cache_service.dart';
 import '../../auth/controllers/auth_controller.dart';
+import '../../dashboard/controllers/nav_controller.dart';
 import 'chat_screen.dart';
 
-class DirectChatScreen extends StatelessWidget {
+class DirectChatScreen extends StatefulWidget {
   const DirectChatScreen({super.key});
 
   @override
+  State<DirectChatScreen> createState() => _DirectChatScreenState();
+}
+
+class _DirectChatScreenState extends State<DirectChatScreen> {
+  final RxBool _isActivated = false.obs;
+
+  @override
   Widget build(BuildContext context) {
-    final controller = Get.isRegistered<DirectChatResolverController>()
-        ? Get.find<DirectChatResolverController>()
-        : Get.put(DirectChatResolverController());
+    if (Get.isRegistered<NavController>()) {
+      final nav = Get.find<NavController>();
+      if (nav.selectedIndex.value == 1) {
+        _isActivated.value = true;
+      }
+    } else {
+      _isActivated.value = true;
+    }
 
     return Obx(() {
+      if (!_isActivated.value) {
+        return const SizedBox.shrink();
+      }
+
+      final controller = Get.isRegistered<DirectChatResolverController>()
+          ? Get.find<DirectChatResolverController>()
+          : Get.put(DirectChatResolverController());
+
       if (controller.isLoading.value) {
         return const Center(child: CircularProgressIndicator());
       }
@@ -32,15 +53,19 @@ class DirectChatScreen extends StatelessWidget {
         partnerPhone: controller.partnerPhone,
         keyboardInset: keyboardInset,
       );
-
     });
   }
 }
 
 
 class DirectChatResolverController extends GetxController {
-  final supabase = Supabase.instance.client;
-  final auth = Get.find<AuthController>();
+  final SupabaseClient? _supabase;
+  SupabaseClient get supabase => _supabase ?? Supabase.instance.client;
+
+  DirectChatResolverController({SupabaseClient? supabase}) : _supabase = supabase;
+
+  AuthController? get auth =>
+      Get.isRegistered<AuthController>() ? Get.find<AuthController>() : null;
 
   final isLoading = true.obs;
   final error = RxnString();
@@ -59,7 +84,7 @@ class DirectChatResolverController extends GetxController {
 
 
   Future<void> resolve() async {
-    final me = auth.user.value;
+    final me = auth?.user.value;
     if (me == null) {
       error.value = "User not authenticated.";
       isLoading.value = false;

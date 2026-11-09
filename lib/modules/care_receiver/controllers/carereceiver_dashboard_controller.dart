@@ -10,11 +10,13 @@ import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/repositories/user_repository.dart';
+import '../../../core/services/cache_service.dart';
 import '../../../core/services/fcm_service.dart';
 import '../../events/controllers/events_controller.dart';
 import '../../events/widgets/healthconnect_dialog.dart';
 import '../../tasks/controllers/task_controller.dart';
 import 'activity_controller.dart';
+import 'reciever_location_controller.dart';
 
 class ReceiverDashboardController extends GetxController {
   final SupabaseClient supabase = Supabase.instance.client;
@@ -63,6 +65,22 @@ class ReceiverDashboardController extends GetxController {
   final isSharingLocation = false.obs;
   final locationStatusMessage = "Initializing...".obs;
 
+  RealtimeChannel? _trackingChannel;
+  static const Duration _dbLocationSyncInterval = Duration(minutes: 15);
+  DateTime? _lastDbLocationSync;
+  double? _lastLatitude;
+  double? _lastLongitude;
+
+  // GEOFENCE CACHE (30-min TTL)
+  static const Duration _geofenceTtl = Duration(minutes: 30);
+  Map<String, dynamic>? _cachedGeofence;
+  DateTime? _geofenceCachedAt;
+
+  bool get _isGeofenceMemoryValid {
+    if (_cachedGeofence == null || _geofenceCachedAt == null) return false;
+    return DateTime.now().difference(_geofenceCachedAt!) < _geofenceTtl;
+  }
+
   
   // STEPS
   
@@ -104,6 +122,8 @@ class ReceiverDashboardController extends GetxController {
   @override
   void onClose() {
     debugPrint("🧹 ReceiverDashboardController disposed");
+    flushLocationToDatabase();
+    _cleanupTrackingChannel();
     _stepSub?.cancel();
     _tokenRefreshSub?.cancel();
     _stepsFlushTimer?.cancel();
@@ -181,7 +201,9 @@ class ReceiverDashboardController extends GetxController {
       onConflict: 'user_id',
     );
 
-    Get.find<ActivityController>().markActive();
+    if (Get.isRegistered<ActivityController>()) {
+      Get.find<ActivityController>().markActive(syncToServer: false);
+    }
 
     debugPrint("🔋 Battery: $level% | Charging: ${isCharging.value}");
   }
@@ -250,12 +272,74 @@ class ReceiverDashboardController extends GetxController {
     isSharingLocation.value = true;
     locationStatusMessage.value = "Sharing location";
 
+    _initTrackingChannel(user.id);
+
+    if (Get.isRegistered<ReceiverLocationController>()) {
+      Get.find<ReceiverLocationController>().cancelTrackingIfDashboardActive();
+    }
+
     await _sendLocationOnce();
 
     _locationTimer = Timer.periodic(
       const Duration(minutes: 2),
           (_) => _sendLocationOnce(),
     );
+  }
+
+  void _initTrackingChannel(String userId) {
+    if (_trackingChannel != null) return;
+    try {
+      _trackingChannel = supabase.channel('tracking:$userId');
+      _trackingChannel!.subscribe();
+      debugPrint("📡 Tracking broadcast channel subscribed: tracking:$userId");
+    } catch (e) {
+      debugPrint("⚠️ Failed to initialize tracking broadcast channel: $e");
+    }
+  }
+
+  void _cleanupTrackingChannel() {
+    if (_trackingChannel != null) {
+      try {
+        _trackingChannel!.unsubscribe();
+        supabase.removeChannel(_trackingChannel!);
+      } catch (_) {}
+      _trackingChannel = null;
+    }
+  }
+
+  Future<void> _syncLocationToPostgres(String userId, double lat, double lng) async {
+    try {
+      final nowIso = DateTime.now().toUtc().toIso8601String();
+      _lastDbLocationSync = DateTime.now();
+
+      await supabase.from('user_locations').upsert(
+        {
+          'user_id': userId,
+          'latitude': lat,
+          'longitude': lng,
+          'last_activity_at': nowIso,
+          'updated_at': nowIso,
+        },
+        onConflict: 'user_id',
+      );
+
+      if (Get.isRegistered<ActivityController>()) {
+        final actCtrl = Get.find<ActivityController>();
+        actCtrl.recordServerSync(DateTime.now());
+        actCtrl.markActive(syncToServer: false);
+      }
+      debugPrint("💾 Historical backup location written to Postgres");
+    } catch (e) {
+      debugPrint("⚠️ Historical location backup failed: $e");
+    }
+  }
+
+  Future<void> flushLocationToDatabase() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+    if (_lastLatitude != null && _lastLongitude != null) {
+      await _syncLocationToPostgres(user.id, _lastLatitude!, _lastLongitude!);
+    }
   }
 
   Future<void> _sendLocationOnce() async {
@@ -268,24 +352,45 @@ class ReceiverDashboardController extends GetxController {
       ),
     );
 
-    debugPrint(
-        "📍 Uploading location → lat: ${position.latitude}, lng: ${position.longitude}");
+    _lastLatitude = position.latitude;
+    _lastLongitude = position.longitude;
 
-    await supabase.from('user_locations').upsert(
-      {
-        'user_id': user.id,
-        'latitude': position.latitude,
-        'longitude': position.longitude,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      },
-      onConflict: 'user_id',
-    );
-    Get.find<ActivityController>().markActive();
+    debugPrint(
+        "📍 Broadcasting live location → lat: ${position.latitude}, lng: ${position.longitude}");
+
+    final nowIso = DateTime.now().toUtc().toIso8601String();
+
+    // 1. WebSocket Broadcast to Caregiver (0% DB CPU)
+    try {
+      _initTrackingChannel(user.id);
+      await _trackingChannel?.sendBroadcastMessage(
+        event: 'location_update',
+        payload: {
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'updated_at': nowIso,
+        },
+      );
+      debugPrint("📡 Broadcasted live location via WebSocket");
+    } catch (e) {
+      debugPrint("⚠️ Realtime broadcast error: $e");
+    }
+
+    // 2. Mark local activity without network write
+    if (Get.isRegistered<ActivityController>()) {
+      Get.find<ActivityController>().markActive(syncToServer: false);
+    }
+
+    // 3. Historical backup write to Postgres every 15-30 minutes
+    if (_lastDbLocationSync == null ||
+        DateTime.now().difference(_lastDbLocationSync!) >= _dbLocationSyncInterval) {
+      await _syncLocationToPostgres(user.id, position.latitude, position.longitude);
+    }
 
     // Check Geofence on each update
     _checkSafeZone(position.latitude, position.longitude);
 
-    debugPrint("📍 Location upload successful");
+    debugPrint("📍 Location tick completed");
   }
 
   Future<void> _checkSafeZone(double lat, double lng) async {
@@ -293,12 +398,56 @@ class ReceiverDashboardController extends GetxController {
     if (user == null) return;
 
     try {
-      final res = await supabase.from('geofences').select().eq('receiver_id', user.id).maybeSingle();
-      if (res == null) return;
+      final cacheKey = CacheService.userKey(user.id, 'geofence');
 
-      final double sLat = (res['latitude'] as num).toDouble();
-      final double sLng = (res['longitude'] as num).toDouble();
-      final int radius = (res['radius'] as num).toInt();
+      // 1. Read from local in-memory cache first
+      if (!_isGeofenceMemoryValid) {
+        // 2. Read from CacheService disk cache
+        try {
+          final diskCached = CacheService.instance.get<Map<String, dynamic>>(
+            cacheKey,
+            maxAge: _geofenceTtl,
+            fromJson: (json) => Map<String, dynamic>.from(json as Map),
+          );
+          if (diskCached != null && !diskCached.isStale) {
+            _cachedGeofence = diskCached.data;
+            _geofenceCachedAt = diskCached.timestamp;
+          }
+        } catch (_) {}
+      }
+
+      // 3. Only fetch from Supabase if cache is empty or expired
+      if (!_isGeofenceMemoryValid) {
+        final res = await supabase
+            .from('geofences')
+            .select()
+            .eq('receiver_id', user.id)
+            .maybeSingle();
+
+        if (res == null) {
+          // Cache negative result with TTL to avoid repeated queries when no geofence exists
+          _cachedGeofence = {'empty': true};
+          _geofenceCachedAt = DateTime.now();
+          try {
+            await CacheService.instance.set(cacheKey, {'empty': true});
+          } catch (_) {}
+          return;
+        }
+
+        _cachedGeofence = res;
+        _geofenceCachedAt = DateTime.now();
+        try {
+          await CacheService.instance.set(cacheKey, res);
+        } catch (_) {}
+      }
+
+      if (_cachedGeofence == null || _cachedGeofence!['empty'] == true) {
+        return;
+      }
+
+      final double sLat = (_cachedGeofence!['latitude'] as num).toDouble();
+      final double sLng = (_cachedGeofence!['longitude'] as num).toDouble();
+      final int radius = (_cachedGeofence!['radius'] as num).toInt();
 
       final distance = Geolocator.distanceBetween(lat, lng, sLat, sLng);
       if (distance > radius) {
@@ -560,6 +709,8 @@ class ReceiverDashboardController extends GetxController {
 
     try {
       isLoading.value = true;
+      _cachedGeofence = null;
+      _geofenceCachedAt = null;
 
       final user = supabase.auth.currentUser;
       if (user == null) return;
@@ -595,25 +746,48 @@ class ReceiverDashboardController extends GetxController {
 
     debugPrint("🔥 FCM TOKEN: $token");
 
-    if (token != null) {
+    final cacheKey = CacheService.userKey(userId, 'fcm_token');
+    String? cachedToken;
+    try {
+      cachedToken = CacheService.instance.get<String>(cacheKey)?.data;
+    } catch (_) {}
+
+    if (token != null && token.isNotEmpty && token != cachedToken) {
       await supabase
           .from('users')
           .update({'fcm_token': token})
           .eq('id', userId);
 
-      debugPrint("✅ FCM token saved to Supabase");
+      try {
+        await CacheService.instance.set(cacheKey, token);
+      } catch (_) {}
+
+      debugPrint("✅ FCM token saved to Supabase and cache updated");
+    } else {
+      debugPrint("ℹ️ FCM token unchanged or empty; skipping update");
     }
 
     _tokenRefreshSub?.cancel();
     _tokenRefreshSub = FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
       debugPrint("🔄 FCM token refreshed: $newToken");
 
-      await supabase
-          .from('users')
-          .update({'fcm_token': newToken})
-          .eq('id', userId);
+      String? currentCached;
+      try {
+        currentCached = CacheService.instance.get<String>(cacheKey)?.data;
+      } catch (_) {}
 
-      debugPrint("✅ Updated refreshed token in Supabase");
+      if (newToken.isNotEmpty && newToken != currentCached) {
+        await supabase
+            .from('users')
+            .update({'fcm_token': newToken})
+            .eq('id', userId);
+
+        try {
+          await CacheService.instance.set(cacheKey, newToken);
+        } catch (_) {}
+
+        debugPrint("✅ Updated refreshed token in Supabase and cache");
+      }
     });
   }
 
