@@ -3,7 +3,7 @@ import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class ChatPlaceholderScreen extends StatelessWidget {
-  const ChatPlaceholderScreen({Key? key}) : super(key: key);
+  const ChatPlaceholderScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +51,7 @@ class ChatPlaceholderScreen extends StatelessWidget {
                   width: 96,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.teal.withOpacity(0.12),
+                    color: Colors.teal.withValues(alpha: 0.12),
                   ),
                   child: const Icon(
                     Icons.chat_bubble_outline_rounded,

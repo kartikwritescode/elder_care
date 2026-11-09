@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../../../core/services/cache_service.dart';
 import '../../auth/controllers/auth_controller.dart';
 import 'chat_screen.dart';
 
@@ -10,7 +10,9 @@ class DirectChatScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controller = Get.put(DirectChatResolverController());
+    final controller = Get.isRegistered<DirectChatResolverController>()
+        ? Get.find<DirectChatResolverController>()
+        : Get.put(DirectChatResolverController());
 
     return Obx(() {
       if (controller.isLoading.value) {
@@ -27,6 +29,7 @@ class DirectChatScreen extends StatelessWidget {
         partnerId: controller.partnerId!,
         partnerName: controller.partnerName!,
         partnerImage: controller.partnerImage,
+        partnerPhone: controller.partnerPhone,
         keyboardInset: keyboardInset,
       );
 
@@ -44,6 +47,7 @@ class DirectChatResolverController extends GetxController {
 
   String? partnerName;
   String? partnerImage;
+  String? partnerPhone;
   String? chatId;
   String? partnerId;
 
@@ -55,11 +59,35 @@ class DirectChatResolverController extends GetxController {
 
 
   Future<void> resolve() async {
-    try {
-      final me = auth.user.value!;
-      final myId = me.id;
+    final me = auth.user.value;
+    if (me == null) {
+      error.value = "User not authenticated.";
+      isLoading.value = false;
+      return;
+    }
+    final myId = me.id;
+    final cacheKey = CacheService.userKey(myId, 'direct_chat_info');
 
-      // 1️⃣ Fetch care link
+    // 1️⃣ Check local cache for immediate display
+    final cached = CacheService.instance.get<Map<String, dynamic>>(
+      cacheKey,
+      fromJson: (json) => Map<String, dynamic>.from(json as Map),
+    );
+
+    if (cached != null) {
+      final data = cached.data;
+      partnerId = data['partnerId'];
+      partnerName = data['partnerName'];
+      partnerImage = data['partnerImage'];
+      partnerPhone = data['partnerPhone'];
+      chatId = data['chatId'];
+      if (partnerId != null && chatId != null) {
+        isLoading.value = false;
+      }
+    }
+
+    try {
+      // 2️⃣ Fetch care link
       final link = me.role == 'receiver'
           ? await supabase
           .from('care_links')
@@ -73,29 +101,29 @@ class DirectChatResolverController extends GetxController {
           .maybeSingle();
 
       if (link == null) {
-        error.value = "No care partner linked yet.";
+        if (partnerId == null) {
+          error.value = "No care partner linked yet.";
+        }
         return;
       }
 
-      // 2️⃣ SET partnerId FIRST ✅
+      // 3️⃣ SET partnerId FIRST
       partnerId = me.role == 'receiver'
           ? link['caregiver_id']
           : link['receiver_id'];
 
-      // 3️⃣ Fetch partner user data ✅
+      // 4️⃣ Fetch partner user data
       final partner = await supabase
           .from('users')
-          .select('full_name, profile_image')
+          .select('full_name, profile_image, phone')
           .eq('id', partnerId!)
           .single();
 
       partnerName = partner['full_name'];
       partnerImage = partner['profile_image'];
+      partnerPhone = partner['phone'];
 
-      print('Partner ID: $partnerId');
-      print('Partner Name: $partnerName');
-
-      // 4️⃣ Find existing chat
+      // 5️⃣ Find existing chat
       final existing = await supabase.rpc(
         'get_direct_chat',
         params: {
@@ -106,21 +134,33 @@ class DirectChatResolverController extends GetxController {
 
       if (existing != null && existing.isNotEmpty) {
         chatId = existing.first['chat_id'];
-        return;
+      } else {
+        // 6️⃣ Create new chat if none exists
+        final chat =
+        await supabase.from('chats').insert({}).select().single();
+
+        await supabase.from('chat_members').insert([
+          {'chat_id': chat['id'], 'user_id': myId},
+          {'chat_id': chat['id'], 'user_id': partnerId},
+        ]);
+
+        chatId = chat['id'];
       }
 
-      // 5️⃣ Create new chat
-      final chat =
-      await supabase.from('chats').insert({}).select().single();
-
-      await supabase.from('chat_members').insert([
-        {'chat_id': chat['id'], 'user_id': myId},
-        {'chat_id': chat['id'], 'user_id': partnerId},
-      ]);
-
-      chatId = chat['id'];
+      // 7️⃣ Cache resolved direct chat information
+      if (chatId != null && partnerId != null) {
+        await CacheService.instance.set(cacheKey, {
+          'partnerId': partnerId,
+          'partnerName': partnerName,
+          'partnerImage': partnerImage,
+          'partnerPhone': partnerPhone,
+          'chatId': chatId,
+        });
+      }
     } catch (e) {
-      error.value = e.toString();
+      if (chatId == null) {
+        error.value = e.toString();
+      }
     } finally {
       isLoading.value = false;
     }

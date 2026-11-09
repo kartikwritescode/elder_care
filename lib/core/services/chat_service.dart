@@ -7,21 +7,24 @@ class ChatService {
     required String userA,
     required String userB,
   }) async {
-    // 1️⃣ Find existing chat
-    final existingChats = await _client
+    // 1️⃣ Find existing chat by finding shared chat_id
+    final userAChats = await _client
         .from('chat_members')
         .select('chat_id')
         .eq('user_id', userA);
 
-    for (final row in existingChats) {
-      final members = await _client
-          .from('chat_members')
-          .select('user_id')
-          .eq('chat_id', row['chat_id']);
+    final chatIds = (userAChats as List).map((e) => e['chat_id'].toString()).toList();
 
-      final ids = members.map((e) => e['user_id']).toList();
-      if (ids.contains(userB)) {
-        return row['chat_id'];
+    if (chatIds.isNotEmpty) {
+      final shared = await _client
+          .from('chat_members')
+          .select('chat_id')
+          .eq('user_id', userB)
+          .inFilter('chat_id', chatIds)
+          .limit(1);
+
+      if ((shared as List).isNotEmpty) {
+        return shared.first['chat_id'].toString();
       }
     }
 
@@ -29,10 +32,10 @@ class ChatService {
     final chat = await _client
         .from('chats')
         .insert({})
-        .select()
+        .select('id')
         .single();
 
-    final chatId = chat['id'];
+    final chatId = chat['id'].toString();
 
     // 3️⃣ Insert members
     await _client.from('chat_members').insert([

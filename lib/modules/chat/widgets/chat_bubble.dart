@@ -45,10 +45,10 @@ class ChatBubble extends StatelessWidget {
           ),
           border: isMe
               ? null
-              : Border.all(color: Colors.black.withOpacity(0.05)),
+              : Border.all(color: Colors.black.withValues(alpha: 0.05)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.025),
+              color: Colors.black.withValues(alpha: 0.025),
               blurRadius: 5,
               offset: const Offset(0, 2),
             ),
@@ -85,7 +85,7 @@ class ChatBubble extends StatelessWidget {
                     isSeen ? Icons.done_all : Icons.done,
                     size: 14,
                     color: isSeen
-                        ? Colors.white.withOpacity(0.9)
+                        ? Colors.white.withValues(alpha: 0.9)
                         : Colors.white60,
                   ),
                 ],

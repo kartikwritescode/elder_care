@@ -2,6 +2,7 @@ import 'package:elder_care/app/utils/phone_call.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../app/widgets/app_cached_image.dart';
 
 import '../controllers/chat_controller.dart';
 import '../widgets/chat_bubble.dart';
@@ -12,8 +13,17 @@ class ChatScreen extends StatefulWidget {
   final String partnerId;
   final String partnerName;
   final String? partnerImage;
+  final String? partnerPhone;
   final double keyboardInset;
-  ChatScreen({Key? key, required this.chatId, required this.partnerId, required this.partnerName, this.partnerImage, required this.keyboardInset}) : super(key: key);
+  const ChatScreen({
+    super.key,
+    required this.chatId,
+    required this.partnerId,
+    required this.partnerName,
+    this.partnerImage,
+    this.partnerPhone,
+    required this.keyboardInset,
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -21,18 +31,18 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   late final ChatController controller;
-
-
   final AuthController authController = Get.find<AuthController>();
-
   final TextEditingController textController = TextEditingController();
-
   final ScrollController scrollController = ScrollController();
+  Worker? _messageWorker;
+
   @override
   void initState() {
     super.initState();
 
-    controller = Get.put(ChatController(), tag: widget.chatId);
+    controller = Get.isRegistered<ChatController>(tag: widget.chatId)
+        ? Get.find<ChatController>(tag: widget.chatId)
+        : Get.put(ChatController(), tag: widget.chatId);
 
     controller.initChat(
       chatId: widget.chatId,
@@ -44,7 +54,7 @@ class _ChatScreenState extends State<ChatScreen> {
     /// Listen for new messages
     int previousLength = 0;
 
-    ever(controller.messages, (list) {
+    _messageWorker = ever(controller.messages, (list) {
       if (list.length > previousLength) {
         // Only auto-scroll if we are near the bottom or if it's our own message
         if (_isNearBottom() || (list.isNotEmpty && list.first.senderId == authController.user.value?.id)) {
@@ -63,9 +73,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    Get.delete<ChatController>(tag: widget.chatId);
+    _messageWorker?.dispose();
     scrollController.dispose();
     textController.dispose();
+    if (Get.isRegistered<ChatController>(tag: widget.chatId)) {
+      Get.delete<ChatController>(tag: widget.chatId);
+    }
     super.dispose();
   }
 
@@ -83,7 +96,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      extendBody: false, // Changed to false to avoid keyboard overlapping issues
+      extendBody: false,
 
 
       appBar: AppBar(
@@ -93,16 +106,11 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Obx(() => Row(
           children: [
             SizedBox(width: Get.width * 0.05),
-            CircleAvatar(
+            AppCachedAvatar(
               radius: 20,
-              backgroundImage: controller.partnerImage.value != null &&
-                  controller.partnerImage.value!.isNotEmpty
-                  ? NetworkImage(controller.partnerImage.value!)
-                  : null,
+              imageUrl: controller.partnerImage.value,
               backgroundColor: Colors.teal.shade100,
-              child: controller.partnerImage.value == null || controller.partnerImage.value!.isEmpty
-                  ? const Icon(Icons.person, color: Colors.teal)
-                  : null,
+              iconColor: Colors.teal,
             ),
             SizedBox(width: Get.width * 0.05),
             Text(
@@ -115,11 +123,16 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         )),
         actions: [
-          IconButton(icon: const Icon(Icons.call), onPressed: () {
-            // Assuming the controller or something has the partner's phone number
-            // For now keeping it as is since I should only touch chat logic
-            makePhoneCall(""); 
-          }),
+          IconButton(
+            icon: const Icon(Icons.call),
+            onPressed: () {
+              if (widget.partnerPhone != null && widget.partnerPhone!.isNotEmpty) {
+                makePhoneCall(widget.partnerPhone!);
+              } else {
+                Get.snackbar("Call Unavailable", "No phone number linked for this contact.");
+              }
+            },
+          ),
           IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
         ],
       ),

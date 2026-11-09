@@ -1,7 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/message_model.dart';
-import '../../../core/services/chat_service.dart';
 import '../../../core/services/fcm_service.dart';
 import '../../auth/controllers/auth_controller.dart';
 
@@ -17,56 +17,61 @@ class ChatController extends GetxController {
   String? _chatId;
   String? _partnerId;
 
-  RealtimeChannel? _channel;
-  bool _initialized = false;
+  String? get activeChatId => _chatId;
 
-  /// 🔹 Called once when screen opens
-  Future<void> initChat({
+  RealtimeChannel? _channel;
+  bool _isSending = false;
+
+  void initChat({
     required String chatId,
     required String partnerId,
     required String partnerName,
     String? partnerImage,
-  }) async {
-    if (_initialized && _chatId == chatId) return;
-
-    _initialized = true;
+  }) {
     _chatId = chatId;
     _partnerId = partnerId;
-
     this.partnerName.value = partnerName;
     this.partnerImage.value = partnerImage;
 
-    loading.value = true;
-
-    await _loadMessages();
-    await _markMessagesAsSeen(); // ✅ IMPORTANT
+    _loadMessages();
     _subscribe();
-
-    loading.value = false;
+    _markMessagesAsSeen();
   }
 
+  @override
+  void onClose() {
+    _channel?.unsubscribe();
+    _chatId = null;
+    _partnerId = null;
+    super.onClose();
+  }
+
+  /// 📥 LOAD MESSAGES (Descending for reverse ListView)
   Future<void> _loadMessages() async {
-    if (_chatId == null) return;
+    try {
+      loading.value = true;
 
-    final res = await supabase
-        .from('messages')
-        .select()
-        .eq('chat_id', _chatId!)
-        .order('created_at', ascending: false);
+      final response = await supabase
+          .from('messages')
+          .select()
+          .eq('chat_id', _chatId!)
+          .order('created_at', ascending: false)
+          .limit(50);
 
-    final loaded =
-    (res as List).map((e) => MessageModel.fromJson(e)).toList();
+      final loaded = (response as List)
+          .map((e) => MessageModel.fromJson(e))
+          .toList();
 
-    // Sort descending: newest messages first (at index 0)
-    loaded.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-    messages.value = loaded;
+      messages.value = loaded;
+    } catch (e) {
+      debugPrint("Load messages error: $e");
+    } finally {
+      loading.value = false;
+    }
   }
 
-  ///   SEEN STATUS
+  /// 👀 SEEN STATUS
   Future<void> _markMessagesAsSeen() async {
-    final myId = supabase.auth.currentUser!.id;
-
     await supabase
         .from('messages')
         .update({'is_seen': true})
@@ -127,39 +132,48 @@ class ChatController extends GetxController {
   }
 
   Future<void> sendMessage(String text) async {
+    final trimmedText = text.trim();
+    if (trimmedText.isEmpty) return;
+    if (_isSending) return;
+    _isSending = true;
     if (_chatId == null || _partnerId == null) return;
 
-    final userId = supabase.auth.currentUser!.id;
+    try {
+      final user = supabase.auth.currentUser;
+      if (user == null) return;
+      final userId = user.id;
 
-    await supabase.from('messages').insert({
-      'chat_id': _chatId,
-      'sender_id': userId,
-      'content': text,
-      'is_seen': false,
-    });
+      await supabase.from('messages').insert({
+        'chat_id': _chatId,
+        'sender_id': userId,
+        'content': trimmedText,
+        'is_seen': false,
+      });
 
-    // 🔥 Send FCM Notification to partner
-    final myProfile = await supabase.from('users').select('full_name').eq('id', userId).maybeSingle();
-    final myName = myProfile?['full_name'] ?? "Someone";
-
-    await FcmService.sendNotification(
-      receiverId: _partnerId!,
-      title: "New Message from $myName",
-      body: text,
-      type: "chat",
-      extraData: {
-        'chat_id': _chatId!,
-        'sender_name': myName,
-        'message': text,
+      // 🔥 Send FCM Notification to partner with cached sender name
+      String myName = "Someone";
+      if (Get.isRegistered<AuthController>()) {
+        final authUser = Get.find<AuthController>().user.value;
+        if (authUser?.fullName?.isNotEmpty == true) {
+          myName = authUser!.fullName!;
+        }
       }
-    );
-  }
 
-  @override
-  void onClose() {
-    if (_channel != null) {
-      supabase.removeChannel(_channel!);
+      await FcmService.sendNotification(
+        receiverId: _partnerId!,
+        title: myName,
+        body: trimmedText,
+        type: "chat",
+        extraData: {
+          'chat_id': _chatId!,
+          'sender_name': myName,
+          'message': trimmedText,
+        },
+      );
+    } catch (e) {
+      debugPrint("SendMessage error: $e");
+    } finally {
+      _isSending = false;
     }
-    super.onClose();
   }
 }
