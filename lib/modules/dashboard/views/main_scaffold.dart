@@ -1,8 +1,5 @@
 import 'package:elder_care/modules/care_receiver/views/schedule_screen.dart';
-import 'package:elder_care/modules/care_receiver/widgets/sos_button.dart';
 import 'package:elder_care/modules/care_receiver/widgets/sos_floating_button.dart';
-import 'package:elder_care/modules/chat/views/chat_placeholder_screen.dart';
-import 'package:elder_care/modules/chat/views/chat_screen.dart';
 import 'package:elder_care/modules/chat/views/direct_chat.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -16,7 +13,6 @@ import '../../care_receiver/controllers/schedule_controller.dart';
 import '../../caregiver/controllers/caregiver_dashboard_controller.dart';
 import '../../caregiver/views/caregiver_dashboard.dart';
 import '../../tasks/controllers/task_controller.dart';
-import '../../tasks/views/task_section.dart';
 import '../../tasks/widgets/add_edit_dialog.dart';
 import '../widgets/bottom_navigation_bar.dart';
 import '../controllers/nav_controller.dart';
@@ -46,6 +42,9 @@ class _MainScaffoldState extends State<MainScaffold> {
   void initState() {
     super.initState();
     debugPrint("🏗️ MainScaffold INIT");
+
+    // Ensure route / bottom nav tab resets to homescreen (index 0)
+    navController.selectedIndex.value = 0;
 
     final user = authController.user.value;
     debugPrint("🏗️ User at MainScaffold init: ${user?.id} | role=${user?.role}");
@@ -94,7 +93,7 @@ class _MainScaffoldState extends State<MainScaffold> {
 
       // Load immediately if already linked
       final rid = caregiverController.receiverId.value;
-      if (rid != null && rid.isNotEmpty) {
+      if (rid.isNotEmpty) {
         taskController.loadTasksForReceiver(rid);
       }
 

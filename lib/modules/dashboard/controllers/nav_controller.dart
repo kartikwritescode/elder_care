@@ -32,4 +32,11 @@ class NavController extends GetxController {
   void startLoading() {
     isLoading.value = true;
   }
+
+  /// Reset navigation state back to default
+  void reset() {
+    selectedIndex.value = 0;
+    linkedReceiverId.value = "";
+    isLoading.value = true;
+  }
 }

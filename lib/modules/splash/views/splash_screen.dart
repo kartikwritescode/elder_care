@@ -28,7 +28,7 @@ class LoadingDots extends StatefulWidget {
   const LoadingDots({super.key});
 
   @override
-  _LoadingDotsState createState() => _LoadingDotsState();
+  State<LoadingDots> createState() => _LoadingDotsState();
 }
 
 class _LoadingDotsState extends State<LoadingDots>

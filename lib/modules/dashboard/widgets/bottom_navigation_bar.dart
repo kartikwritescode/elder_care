@@ -29,7 +29,7 @@ class CareGiverBottomNavBar extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.07),
+              color: Colors.black.withValues(alpha: 0.07),
               blurRadius: 18,
               offset: const Offset(0, -4),
             ),
@@ -118,7 +118,7 @@ class CareReceiverBottomNavBar extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.07),
+              color: Colors.black.withValues(alpha: 0.07),
               blurRadius: 18,
               offset: const Offset(0, -4),
             ),
