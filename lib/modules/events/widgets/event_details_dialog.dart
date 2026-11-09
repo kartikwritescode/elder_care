@@ -3,19 +3,19 @@ import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/models/event_model.dart';
-import '../../care_receiver/views/schedule_screen.dart';
 import '../controllers/events_controller.dart';
-import '../views/eventssection.dart';
 import 'add_edit_event_dialog.dart';
+
+const Color kTeal = Color(0xFF7AB7A7);
 
 class EventDetailsDialog extends StatelessWidget {
   final EventModel event;
   final EventsController controller = Get.find<EventsController>();
 
-   EventDetailsDialog({
-    Key? key,
+  EventDetailsDialog({
+    super.key,
     required this.event,
-  }) : super(key: key);
+  });
 
   static const Color kBg = Color(0xFFF3F6F7);
 
@@ -78,16 +78,14 @@ class EventDetailsDialog extends StatelessWidget {
                   ),
                 ),
 
-                if (dt != null) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    _friendlyDate(dt),
-                    style: GoogleFonts.nunito(
-                      fontSize: 13,
-                      color: Colors.black54,
-                    ),
+                const SizedBox(height: 6),
+                Text(
+                  _friendlyDate(dt),
+                  style: GoogleFonts.nunito(
+                    fontSize: 13,
+                    color: Colors.black54,
                   ),
-                ],
+                ),
 
                 const SizedBox(height: 14),
 
@@ -159,45 +157,42 @@ class EventDetailsDialog extends StatelessWidget {
                     Expanded(
                       child: StatefulBuilder(
                         builder: (context, setState) {
-                          bool deleting = false;
-
-                          return ElevatedButton(
-                            onPressed: deleting
-                                ? null
-                                : () async {
-                              setState(() => deleting = true);
-
-                              await controller.deleteEventConfirmed(event.id!);
-
-                              if (!context.mounted) return;
-
-                              Navigator.of(context).pop();
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.redAccent,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
+                          return Obx(() {
+                            final deleting = controller.isLoading.value;
+                            return ElevatedButton(
+                              onPressed: deleting
+                                  ? null
+                                  : () async {
+                                await controller.deleteEventConfirmed(event.id!);
+                                if (!context.mounted) return;
+                                Navigator.of(context).pop();
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.redAccent,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                elevation: 0,
                               ),
-                              elevation: 0,
-                            ),
-                            child: deleting
-                                ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                                : Text(
-                              'Delete',
-                              style: GoogleFonts.nunito(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          );
+                              child: deleting
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Text(
+                                      'Delete',
+                                      style: GoogleFonts.nunito(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                            );
+                          });
                         },
                       ),
                     ),

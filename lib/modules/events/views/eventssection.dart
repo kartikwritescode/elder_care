@@ -3,19 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-
-import '../../care_receiver/views/schedule_screen.dart';
 import '../controllers/events_controller.dart';
-import '../../../core/models/event_model.dart';
 import '../widgets/add_edit_event_dialog.dart';
 import '../widgets/event_card.dart';
 
-final h = Get.height;
-final w = Get.width;
-
+const Color kTeal = Color(0xFF7AB7A7);
 
 class EventSection extends StatelessWidget {
-  EventSection({Key? key}) : super(key: key);
+  EventSection({super.key});
 
   final EventsController controller = Get.find<EventsController>();
 
@@ -33,7 +28,7 @@ class EventSection extends StatelessWidget {
 
   Widget _header(BuildContext ctx) {
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: w * 0.05),
+      padding: EdgeInsets.symmetric(horizontal: Get.width * 0.05),
       child: Row(children: [
         Expanded(
           child: Text('Events', style: GoogleFonts.nunito(fontSize: 22, fontWeight: FontWeight.w800)),
@@ -44,15 +39,15 @@ class EventSection extends StatelessWidget {
             _openAddDialog(ctx, isEdit: false);
           },
           child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: kTeal,
               borderRadius: BorderRadius.circular(12),
-              boxShadow: [BoxShadow(color: kTeal.withOpacity(0.22), blurRadius: 8, offset: Offset(0, 5))],
+              boxShadow: [BoxShadow(color: kTeal.withValues(alpha: 0.22), blurRadius: 8, offset: const Offset(0, 5))],
             ),
             child: Row(children: [
-              Icon(Icons.add, color: Colors.white),
-              SizedBox(width: 8),
+              const Icon(Icons.add, color: Colors.white),
+              const SizedBox(width: 8),
               Text('Add', style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w700)),
             ]),
           ),

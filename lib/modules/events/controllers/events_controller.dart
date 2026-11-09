@@ -3,65 +3,36 @@ import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/models/event_model.dart';
+import '../../../core/repositories/event_repository.dart';
 import '../../../core/services/native_alarm_service.dart';
 import '../../../core/services/fcm_service.dart';
 
 class SupabaseEventService {
-  static final supabase = Supabase.instance.client;
+  static EventRepository get _repo => Get.isRegistered<EventRepository>()
+      ? Get.find<EventRepository>()
+      : EventRepository();
 
-  static Future<List<EventModel>> fetchEvents(String receiverId) async {
-    final res = await supabase
-        .from('events')
-        .select()
-        .eq('receiver_id', receiverId)
-        .order('event_time', ascending: true);
-
-    if (res is List) {
-      return res
-          .map<EventModel>(
-              (e) => EventModel.fromMap(Map<String, dynamic>.from(e)))
-          .toList();
-    }
-    return [];
+  static Future<List<EventModel>> fetchEvents(
+    String receiverId, {
+    void Function(List<EventModel>)? onCacheLoaded,
+  }) async {
+    return await _repo.getEvents(receiverId, onCacheLoaded: onCacheLoaded);
   }
 
   static Future<EventModel?> createEvent(EventModel event) async {
-    final res = await supabase
-        .from('events')
-        .insert(event.toMap())
-        .select()
-        .single();
-
-    if (res != null) {
-      return EventModel.fromMap(Map<String, dynamic>.from(res));
-    }
-    return null;
+    return await _repo.createEvent(event);
   }
 
   static Future<EventModel?> updateEvent(EventModel event) async {
-    if (event.id == null) return null;
-
-    final res = await supabase
-        .from('events')
-        .update({
-          'title': event.title,
-          'event_time': event.eventTime.toIso8601String(),
-          'category': event.category,
-          'notes': event.notes,
-        })
-        .eq('id', event.id!)
-        .select()
-        .single()
-        .maybeSingle();
-
-    if (res != null) {
-      return EventModel.fromMap(Map<String, dynamic>.from(res));
-    }
-    return null;
+    return await _repo.updateEvent(event);
   }
 
-  static Future<void> deleteEvent(int id) async {
-    await supabase.from('events').delete().eq('id', id);
+  static Future<void> deleteEvent(int id, {String? receiverId}) async {
+    if (receiverId != null) {
+      await _repo.deleteEvent(id, receiverId);
+    } else {
+      await Supabase.instance.client.from('events').delete().eq('id', id);
+    }
   }
 }
 
@@ -70,6 +41,7 @@ class EventsController extends GetxController {
   final RxList<EventModel> events = <EventModel>[].obs;
   String? currentReceiverId;
 
+  final isLoading = false.obs;
   final titleController = TextEditingController();
   final dateController = TextEditingController();
   final notesController = TextEditingController();
@@ -110,7 +82,12 @@ class EventsController extends GetxController {
   Future<void> loadEventsForReceiver(String receiverId) async {
     currentReceiverId = receiverId;
     try {
-      final list = await SupabaseEventService.fetchEvents(receiverId);
+      final list = await SupabaseEventService.fetchEvents(
+        receiverId,
+        onCacheLoaded: (cachedList) {
+          events.assignAll(cachedList);
+        },
+      );
       events.assignAll(list);
     } catch (e) {
       debugPrint('fetchEvents error: $e');
@@ -150,22 +127,24 @@ class EventsController extends GetxController {
       events.sort((a, b) => a.eventTime.compareTo(b.eventTime));
 
       // Native Alarm Scheduling
-      if (supabase.auth.currentUser?.id == currentReceiverId) {
+      final isReceiver = supabase.auth.currentUser?.id == currentReceiverId;
+      if (isReceiver) {
         await NativeAlarmService.schedule(
           alarmId: "event_${created.id}",
           dateTime: created.eventTime,
           title: created.title,
         );
+      } else {
+        await FcmService.sendRemoteAlarm(
+          receiverId: currentReceiverId!,
+          alarmId: "event_${created.id}",
+          time: created.eventTime,
+          title: created.title,
+        );
       }
-      await FcmService.sendRemoteAlarm(
-        receiverId: currentReceiverId!,
-        alarmId: "event_${created.id}",
-        time: created.eventTime,
-        title: created.title,
-      );
 
       // Notify caregiver if receiver added an event
-      if (supabase.auth.currentUser?.id == currentReceiverId) {
+      if (isReceiver) {
         final caregiver = await _getCaregiverId();
         if (caregiver != null) {
           await FcmService.sendNotification(
@@ -204,20 +183,22 @@ class EventsController extends GetxController {
       events.sort((a, b) => a.eventTime.compareTo(b.eventTime));
 
       // Reschedule Native Alarm
-      await NativeAlarmService.cancel("event_${updated.id}");
-      if (supabase.auth.currentUser?.id == currentReceiverId) {
+      final isReceiver = supabase.auth.currentUser?.id == currentReceiverId;
+      if (isReceiver) {
+        await NativeAlarmService.cancel("event_${updated.id}");
         await NativeAlarmService.schedule(
           alarmId: "event_${updated.id}",
           dateTime: updated.eventTime,
           title: updated.title,
         );
+      } else {
+        await FcmService.sendRemoteAlarm(
+          receiverId: currentReceiverId!,
+          alarmId: "event_${updated.id}",
+          time: updated.eventTime,
+          title: updated.title,
+        );
       }
-      await FcmService.sendRemoteAlarm(
-        receiverId: currentReceiverId!,
-        alarmId: "event_${updated.id}",
-        time: updated.eventTime,
-        title: updated.title,
-      );
 
       return true;
     }
@@ -225,7 +206,7 @@ class EventsController extends GetxController {
   }
 
   Future<void> deleteEventConfirmed(int id) async {
-    await SupabaseEventService.deleteEvent(id);
+    await SupabaseEventService.deleteEvent(id, receiverId: currentReceiverId);
     events.removeWhere((e) => e.id == id);
     await NativeAlarmService.cancel("event_$id");
     if (currentReceiverId != null) {

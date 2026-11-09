@@ -3,16 +3,14 @@ import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/models/event_model.dart';
-import '../../care_receiver/views/schedule_screen.dart';
 import '../controllers/events_controller.dart';
-import '../views/eventssection.dart';
 import 'event_details_dialog.dart';
 
-
+const Color kTeal = Color(0xFF7AB7A7);
 
 class EventCardCompact extends StatelessWidget {
   final EventModel event;
-  const EventCardCompact({Key? key, required this.event}) : super(key: key);
+  const EventCardCompact({super.key, required this.event});
 
   String _friendlyDate(DateTime dateTime) {
     final d = dateTime.toLocal();
@@ -89,7 +87,7 @@ class EventCardCompact extends StatelessWidget {
           border: Border.all(color: const Color(0xFFE1E6E8)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 8,
               offset: const Offset(0, 3),
             ),
@@ -104,13 +102,13 @@ class EventCardCompact extends StatelessWidget {
               width: Get.width * 0.14,
               height: Get.width * 0.14,
               decoration: BoxDecoration(
-                color: _colorForCategory(event.category).withOpacity(0.9),
+                color: _colorForCategory(event.category).withValues(alpha: 0.9),
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: _colorForCategory(event.category).withOpacity(0.35),
+                    color: _colorForCategory(event.category).withValues(alpha: 0.35),
                     blurRadius: 10,
-                    offset: Offset(0, 4),
+                    offset: const Offset(0, 4),
                   )
                 ],
               ),
@@ -122,7 +120,7 @@ class EventCardCompact extends StatelessWidget {
           ),
             ),
 
-          SizedBox(width: 14),
+          const SizedBox(width: 14),
 
             // Right side text
             Expanded(
@@ -140,7 +138,7 @@ class EventCardCompact extends StatelessWidget {
                     ),
                   ),
 
-                  SizedBox(height: 6),
+                  const SizedBox(height: 6),
 
                   Text(
                     _friendlyDate(event.eventTime),
@@ -152,17 +150,17 @@ class EventCardCompact extends StatelessWidget {
                     ),
                   ),
 
-                  Spacer(),
+                  const Spacer(),
 
                   // Category chip
                   Row(
                     children: [
                       Container(
-                        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
                           color: Colors.white.withAlpha(65),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: kTeal.withOpacity(0.3)),
+                          border: Border.all(color: kTeal.withValues(alpha: 0.3)),
                         ),
                         child: Text(
                           event.category,

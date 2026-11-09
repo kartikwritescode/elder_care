@@ -7,17 +7,11 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../care_receiver/views/schedule_screen.dart';
 import '../controllers/events_controller.dart';
-import '../views/eventssection.dart' hide h;
-
-
-
-
-
 
 class AddEditEventDialog extends StatefulWidget {
   final bool isEdit;
   final EventsController controller;
-  const AddEditEventDialog({Key? key, required this.isEdit, required this.controller}) : super(key: key);
+  const AddEditEventDialog({super.key, required this.isEdit, required this.controller});
 
   @override
   State<AddEditEventDialog> createState() => _AddEditEventDialogState();
@@ -42,7 +36,7 @@ class _AddEditEventDialogState extends State<AddEditEventDialog> {
   final DateTime start = DateTime.now();
 
   // Use a small fixed height for the timeline to avoid overflow
-  static double _timelineHeight = Get.height * 0.11;
+  static final double _timelineHeight = Get.height * 0.11;
 
 
   // Open day-night time picker (animated)
@@ -311,7 +305,7 @@ class _AddEditEventDialogState extends State<AddEditEventDialog> {
                     success = await widget.controller.addEvent();
                   }
 
-                  if (!mounted) return;
+                  if (!mounted || !context.mounted) return;
 
                   setState(() => loading = false);
 
