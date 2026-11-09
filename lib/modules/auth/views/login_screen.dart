@@ -1,18 +1,14 @@
-  import 'package:elder_care/modules/caregiver/controllers/care_link_controller.dart';
-  import 'package:elder_care/modules/dashboard/controllers/dashboard_controller.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/services.dart';
+import '../../../modules/auth/controllers/auth_controller.dart';
+import '../widgets/social_button.dart';
+import '../../../modules/auth/views/forgotpassemail_screen.dart';
+import 'signup_screen.dart';
 
-
-  import 'package:flutter/material.dart';
-  import 'package:get/get.dart';
-  import 'package:google_fonts/google_fonts.dart';
-  import 'package:flutter/services.dart';
-  import '../../../modules/auth/controllers/auth_controller.dart';
-  import '../widgets/social_button.dart';
-  import '../../../modules/auth/views/forgotpassemail_screen.dart';
-  import 'signup_screen.dart';
-
-  class LoginScreen extends StatefulWidget {
-    const LoginScreen({Key? key}) : super(key: key);
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
 
     @override
     _LoginScreenState createState()

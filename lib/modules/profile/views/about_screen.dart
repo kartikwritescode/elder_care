@@ -5,9 +5,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/services.dart';
 
 class AboutScreen extends StatelessWidget {
-  AboutScreen({Key? key}) : super(key: key);
+  const AboutScreen({super.key});
 
-  final String aboutText = '''
+  static const String aboutText = '''
 ElderCare is designed to make caregiving simpler, safer, and more connected for families and caregivers.
 The app provides:
  - Easy caregiver / care-receiver linking

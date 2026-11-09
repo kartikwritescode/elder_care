@@ -1,9 +1,8 @@
-import 'dart:io';
-import 'package:country_code_picker/country_code_picker.dart';
 import 'package:country_picker/country_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../app/widgets/app_cached_image.dart';
 import '../controllers/edit_profile_controller.dart';
 
 class EditProfileScreen extends StatelessWidget {
@@ -60,17 +59,15 @@ class EditProfileScreen extends StatelessWidget {
                   children: [
                     Hero(
                       tag: "profile-avatar",
-                      child: CircleAvatar(
+                      child: AppCachedAvatar(
                         radius: w * 0.20,
                         backgroundColor: Colors.grey.shade100,
-                        backgroundImage: controller.selectedImage.value != null
-                            ? FileImage(controller.selectedImage.value!)
-                            : (preview.startsWith("http")
-                            ? NetworkImage(preview)
-                            : null),
-                        child: (preview.isEmpty)
-                            ? Icon(Icons.person, size: w * 0.20, color: Colors.grey)
+                        localFile: controller.selectedImage.value,
+                        imageUrl: (controller.selectedImage.value == null && preview.startsWith("http"))
+                            ? preview
                             : null,
+                        iconFallback: Icons.person,
+                        iconColor: Colors.grey,
                       ),
                     ),
 
@@ -288,7 +285,7 @@ BoxDecoration inputFieldDecoration(double w) {
     color: const Color(0xFFF6F8F7), // slightly darker than bg
     borderRadius: BorderRadius.circular(w * 0.04),
     border: Border.all(
-      color: Colors.black.withOpacity(0.06),
+      color: Colors.black.withValues(alpha: 0.06),
     ),
   );
 }

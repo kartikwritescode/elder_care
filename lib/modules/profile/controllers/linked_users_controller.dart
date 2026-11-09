@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/models/user_model.dart';
+import '../../../core/services/cache_service.dart';
 import '../../auth/controllers/auth_controller.dart';
 
 class LinkedUsersController extends GetxController {
@@ -185,7 +186,7 @@ class LinkedUsersController extends GetxController {
           ),
         ),
       ),
-      barrierColor: Colors.black.withOpacity(0.35),
+      barrierColor: Colors.black.withValues(alpha: 0.35),
     );
   }
 
@@ -244,30 +245,50 @@ class LinkedUsersController extends GetxController {
   // FETCH LINKED USERS
   // ----------------------------------------------------------
   Future<void> fetchLinkedUsers() async {
-    try {
+    final currentUser = auth.user.value;
+    if (currentUser == null) return;
+
+    final cacheKey = CacheService.userKey(currentUser.id, 'linked_users');
+
+    // 1. Read cached list for instant offline display
+    final cached = CacheService.instance.get<List<UserModel>>(
+      cacheKey,
+      fromJson: (list) {
+        if (list is! List) return <UserModel>[];
+        return list.map((e) => UserModel.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+      },
+    );
+
+    if (cached != null && cached.data.isNotEmpty) {
+      linkedUsers.assignAll(cached.data);
+    } else {
       isLoading.value = true;
-      final currentUser = auth.user.value;
-      if (currentUser == null) return;
+    }
+
+    try {
+      List<UserModel> freshList = [];
 
       if (currentUser.role == "caregiver") {
-        final link = await supabase
+        final linkRows = await supabase
             .from('care_links')
             .select('receiver_id')
-            .eq('caregiver_id', currentUser.id)
-            .maybeSingle();
+            .eq('caregiver_id', currentUser.id);
 
-        if (link == null || link['receiver_id'] == null) {
+        if (linkRows.isEmpty) {
           linkedUsers.clear();
+          await CacheService.instance.set(cacheKey, []);
           return;
         }
 
-        final receiver = await supabase
+        final receiverIds =
+            linkRows.map((row) => row['receiver_id']).toList();
+
+        final receivers = await supabase
             .from('users')
             .select()
-            .eq('id', link['receiver_id'])
-            .single();
+            .inFilter('id', receiverIds);
 
-        linkedUsers.assignAll([UserModel.fromJson(receiver)]);
+        freshList = receivers.map((e) => UserModel.fromJson(e)).toList();
       } else {
         final linkRows = await supabase
             .from('care_links')
@@ -276,22 +297,25 @@ class LinkedUsersController extends GetxController {
 
         if (linkRows.isEmpty) {
           linkedUsers.clear();
+          await CacheService.instance.set(cacheKey, []);
           return;
         }
 
         final caregiverIds =
-        linkRows.map((row) => row['caregiver_id']).toList();
+            linkRows.map((row) => row['caregiver_id']).toList();
 
         final caregivers = await supabase
             .from('users')
             .select()
             .inFilter('id', caregiverIds);
 
-        linkedUsers.assignAll(
-            caregivers.map((e) => UserModel.fromJson(e)).toList());
+        freshList = caregivers.map((e) => UserModel.fromJson(e)).toList();
       }
+
+      linkedUsers.assignAll(freshList);
+      await CacheService.instance.set(cacheKey, freshList.map((u) => u.toJson()).toList());
     } catch (e) {
-      print("fetchLinkedUsers error: $e");
+      debugPrint("fetchLinkedUsers warning (using cached data): $e");
     } finally {
       isLoading.value = false;
     }

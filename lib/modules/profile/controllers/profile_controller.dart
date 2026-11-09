@@ -4,14 +4,13 @@ import 'dart:io';
 import 'package:elder_care/modules/auth/controllers/auth_controller.dart';
 import 'package:elder_care/modules/profile/views/edit_profile_screen.dart';
 import 'package:elder_care/modules/profile/views/help_support_screen.dart';
-import 'package:elder_care/modules/profile/views/linked_users_Screen.dart';
+import 'package:elder_care/modules/profile/views/linked_users_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase/supabase.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../../core/models/user_model.dart';
+import '../../../core/repositories/user_repository.dart';
 import '../../../core/services/cloudinary_service.dart';
 import 'edit_profile_controller.dart';
 
@@ -71,11 +70,16 @@ class ProfileController extends GetxController {
       final uid = authController.user.value?.id;
       if (uid == null) return;
 
-      final data = await supabase.from('users').select().eq('id', uid).single();
+      final userRepo = Get.isRegistered<UserRepository>()
+          ? Get.find<UserRepository>()
+          : UserRepository();
 
-      authController.user.value = UserModel.fromJson(data);
+      final updatedUser = await userRepo.getUser(uid, forceRemote: true);
+      if (updatedUser != null) {
+        authController.user.value = updatedUser;
+      }
     } catch (e) {
-      print("Profile refresh error: $e");
+      debugPrint("Profile refresh error: $e");
     }
   }
 

@@ -5,9 +5,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/services.dart';
 
 class PoliciesScreen extends StatelessWidget {
-  PoliciesScreen({Key? key}) : super(key: key);
+  const PoliciesScreen({super.key});
 
-  final double headingSize = 18;
+  static const double headingSize = 18;
 
   @override
   Widget build(BuildContext context) {
@@ -170,7 +170,7 @@ Data Handling & Security (Summary)
 class FullPolicyPage extends StatelessWidget {
   final String title;
   final String content;
-  const FullPolicyPage({Key? key, required this.title, required this.content}) : super(key: key);
+  const FullPolicyPage({super.key, required this.title, required this.content});
 
   @override
   Widget build(BuildContext context) {

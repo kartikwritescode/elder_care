@@ -1,29 +1,30 @@
 import 'dart:async';
-import 'dart:io';
-
 import 'package:elder_care/modules/dashboard/views/main_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/user_model.dart';
+import '../../../core/repositories/user_repository.dart';
+import '../../../core/services/app_image_cache_manager.dart';
+import '../../../core/services/cache_service.dart';
 
 import '../../care_receiver/controllers/carereceiver_dashboard_controller.dart';
- 
 import '../../caregiver/controllers/caregiver_dashboard_controller.dart';
-import '../../caregiver/views/caregiver_dashboard.dart';
 import '../../care_receiver/views/care_id_display_screen.dart';
 import '../../caregiver/views/care_link_screen.dart';
-import '../../care_receiver/views/carereciever_dashboard.dart';
-
 import '../../caregiver/controllers/care_link_controller.dart';
-
 import '../../dashboard/controllers/dashboard_controller.dart';
+import '../../dashboard/controllers/nav_controller.dart';
+import '../../profile/controllers/profile_controller.dart';
 import '../views/login_screen.dart';
 import '../views/new_password_screen.dart';
 import '../views/role_selection_screen.dart';
 
 class AuthController extends GetxController {
   final SupabaseClient supabase = Supabase.instance.client;
+  UserRepository get userRepo => Get.isRegistered<UserRepository>()
+      ? Get.find<UserRepository>()
+      : UserRepository();
 
   // Observables
   final Rx<UserModel?> user = Rx<UserModel?>(null);
@@ -93,6 +94,9 @@ class AuthController extends GetxController {
       if (authEvent == AuthChangeEvent.signedOut) {
         print("User signed out via listener");
         user.value = null;
+        if (Get.isRegistered<NavController>()) {
+          Get.find<NavController>().reset();
+        }
         // Navigate to login screen if needed
         Get.offAll(() => LoginScreen());
       }
@@ -257,6 +261,11 @@ class AuthController extends GetxController {
       // 1. Supabase Logout
       await supabase.auth.signOut();
 
+      // Reset bottom navigation back to homescreen
+      if (Get.isRegistered<NavController>()) {
+        Get.find<NavController>().reset();
+      }
+
       // 2. DELETE ALL USER-SPECIFIC CONTROLLERS
       // Delete Dashboard + CareLink
       if (Get.isRegistered<DashboardController>()) {
@@ -276,10 +285,21 @@ class AuthController extends GetxController {
         Get.delete<ReceiverDashboardController>(force: true);
       }
 
-      // 3. Clear AuthController user data
+      if (Get.isRegistered<ProfileController>()) {
+        Get.delete<ProfileController>(force: true);
+      }
+
+      // 3. Clear user cache and disk image cache to prevent data leakage
+      final currentUid = user.value?.id;
+      if (currentUid != null) {
+        await CacheService.instance.clearUserCache(currentUid);
+      }
+      await AppImageCacheManager.emptyCache();
+
+      // 4. Clear AuthController user data
       user.value = null;
 
-      // 4. Navigate to Login
+      // 5. Navigate to Login
       Get.offAll(() => LoginScreen());
     } catch (e) {
       Get.snackbar(
@@ -352,6 +372,9 @@ class AuthController extends GetxController {
           backgroundColor: Colors.green,
           colorText: Colors.white);
 
+      if (Get.isRegistered<NavController>()) {
+        Get.find<NavController>().reset();
+      }
       await supabase.auth.signOut();
       Get.offAll(() => LoginScreen());
     } catch (e) {
@@ -398,12 +421,14 @@ class AuthController extends GetxController {
   
   Future<void> fetchRoleAndNavigate(String userId) async {
     try {
-      // Fetch fresh user row from DB
-      final response =
-      await supabase.from('users').select().eq('id', userId).single();
+      // 1. Fetch user model via UserRepository (cached or fresh)
+      final loadedUser = await userRepo.getUser(userId);
 
-      // Set user model (fresh)
-      user.value = UserModel.fromJson(response);
+      if (loadedUser == null) {
+        throw "Could not retrieve user data.";
+      }
+
+      user.value = loadedUser;
 
       // Delete any user-specific controllers to avoid stale state
       // (they will be recreated by bindings or when needed)
@@ -419,6 +444,14 @@ class AuthController extends GetxController {
       if (Get.isRegistered<ReceiverDashboardController>()) {
         Get.delete<ReceiverDashboardController>(force: true);
       }
+      if (Get.isRegistered<ProfileController>()) {
+        Get.delete<ProfileController>(force: true);
+      }
+
+      // Reset navigation tab so user lands on HomeScreen of desired role
+      if (Get.isRegistered<NavController>()) {
+        Get.find<NavController>().selectedIndex.value = 0;
+      }
 
       final role = user.value?.role;
 
@@ -427,33 +460,60 @@ class AuthController extends GetxController {
         return;
       }
 
-      if (role == "caregiver") {
-        final links = await supabase
-            .from('care_links')
-            .select('receiver_id')
-            .eq('caregiver_id', userId);
+      final linkKey = CacheService.userKey(userId, 'has_link');
 
-        if (links.isEmpty) {
+      if (role == "caregiver") {
+        bool isLinked = false;
+        try {
+          final links = await supabase
+              .from('care_links')
+              .select('receiver_id')
+              .eq('caregiver_id', userId);
+          isLinked = links.isNotEmpty;
+          await CacheService.instance.set(linkKey, isLinked);
+        } catch (_) {
+          // Fallback to cached link state if offline
+          final cachedState = CacheService.instance.get<bool>(linkKey);
+          isLinked = cachedState?.data ?? false;
+        }
+
+        if (!isLinked) {
           Get.offAll(() => CareLinkScreen());
         } else {
           // ensure NavController / bindings are ready (InitialBinding should lazyPut them)
-          Get.offAll(() => MainScaffold());
+          Get.offAll(() => const MainScaffold());
         }
       } else if (role == "receiver") {
-        final careId = user.value?.careId;
+        String? careId = user.value?.careId;
+        if (careId == null || careId.isEmpty) {
+          final careLinkController = Get.isRegistered<CareLinkController>()
+              ? Get.find<CareLinkController>()
+              : Get.put(CareLinkController());
+          careId = await careLinkController.generateAndAssignCareId(userId);
+          user.value?.careId = careId;
+        }
 
-        final links = await supabase
-            .from('care_links')
-            .select('caregiver_id')
-            .eq('receiver_id', userId);
+        bool isLinked = false;
+        try {
+          final links = await supabase
+              .from('care_links')
+              .select('caregiver_id')
+              .eq('receiver_id', userId);
+          isLinked = links.isNotEmpty;
+          await CacheService.instance.set(linkKey, isLinked);
+        } catch (_) {
+          final cachedState = CacheService.instance.get<bool>(linkKey);
+          isLinked = cachedState?.data ?? false;
+        }
 
-        if (links.isEmpty) {
-          Get.offAll(() => CareIdDisplayScreen(careId: careId!));
+        if (!isLinked) {
+          Get.offAll(() => CareIdDisplayScreen(careId: careId ?? ""));
         } else {
-          Get.offAll(() => MainScaffold());
+          Get.offAll(() => const MainScaffold());
         }
       }
     } catch (e) {
+      debugPrint("fetchRoleAndNavigate error: $e");
       Get.snackbar('Error', 'Could not load user data.',
           backgroundColor: Colors.red, colorText: Colors.white);
       Get.offAll(() => LoginScreen());
@@ -464,9 +524,13 @@ class AuthController extends GetxController {
     final userId = user.value?.id;
     if (userId == null) return false;
 
-    final response = await supabase.from("users").update(data).eq("id", userId);
-
-    return response.error == null;
+    try {
+      final success = await userRepo.updateUser(userId, data);
+      return success;
+    } catch (e) {
+      debugPrint("updateUserData error: $e");
+      return false;
+    }
   }
 
 }

@@ -1,9 +1,9 @@
-import 'dart:developer';
 import 'dart:io';
 import 'package:elder_care/modules/auth/controllers/auth_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../app/widgets/app_cached_image.dart';
 
 import '../controllers/profile_controller.dart';
 import 'edit_profile_screen.dart';
@@ -12,7 +12,9 @@ class ProfileScreen extends StatelessWidget {
   ProfileScreen({super.key});
 
   final AuthController authController = Get.find<AuthController>();
-  final ProfileController controller = Get.put(ProfileController());
+  ProfileController get controller => Get.isRegistered<ProfileController>()
+      ? Get.find<ProfileController>()
+      : Get.put(ProfileController());
 
   @override
   Widget build(BuildContext context) {
@@ -98,17 +100,17 @@ class ProfileScreen extends StatelessWidget {
                                     ),
                                   ],
                                 ),
-                                child: CircleAvatar(
+                                child: AppCachedAvatar(
                                   radius: w * 0.18,
                                   backgroundColor: Colors.grey.shade100,
-                                  backgroundImage: (imageUrl == null)
-                                      ? null
-                                      : imageUrl.startsWith("http")
-                                      ? NetworkImage(imageUrl)
-                                      : FileImage(File(imageUrl)) as ImageProvider,
-                                  child: imageUrl == null
-                                      ? Icon(Icons.person, size: w * 0.18, color: Colors.grey)
+                                  imageUrl: (imageUrl != null && imageUrl.startsWith("http"))
+                                      ? imageUrl
                                       : null,
+                                  localFile: (imageUrl != null && !imageUrl.startsWith("http") && imageUrl.isNotEmpty)
+                                      ? File(imageUrl)
+                                      : null,
+                                  iconFallback: Icons.person,
+                                  iconColor: Colors.grey,
                                 ),
                               ),
                             ),
@@ -119,7 +121,7 @@ class ProfileScreen extends StatelessWidget {
                                 child: Container(
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    color: Colors.black.withOpacity(0.35),
+                                    color: Colors.black.withValues(alpha: 0.35),
                                   ),
                                   child: Center(
                                     child: SizedBox(
@@ -353,7 +355,7 @@ class ProfileScreen extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
-        splashColor: const Color(0xFF7AB7A7).withOpacity(0.15),
+        splashColor: const Color(0xFF7AB7A7).withValues(alpha: 0.15),
 
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: w * 0.010),

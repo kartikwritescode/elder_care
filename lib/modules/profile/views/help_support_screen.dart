@@ -8,10 +8,12 @@ import 'about_screen.dart';
 import 'policies_screen.dart';
 
 class HelpSupportScreen extends StatelessWidget {
-  HelpSupportScreen({Key? key}) : super(key: key);
+  const HelpSupportScreen({super.key});
 
-  final HelpSupportController controller = Get.put(HelpSupportController());
-  final String supportEmail = 'work.kartikkumar@gmail.com';
+  HelpSupportController get controller => Get.isRegistered<HelpSupportController>()
+      ? Get.find<HelpSupportController>()
+      : Get.put(HelpSupportController());
+  static const String supportEmail = 'work.kartikkumar@gmail.com';
 
   @override
   Widget build(BuildContext context) {

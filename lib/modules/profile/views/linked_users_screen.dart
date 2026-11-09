@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../app/widgets/app_cached_image.dart';
 import '../../../core/models/user_model.dart';
 import '../../auth/controllers/auth_controller.dart';
 import '../controllers/linked_users_controller.dart';
@@ -81,16 +82,14 @@ class LinkedUsersScreen extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  CircleAvatar(
+                  AppCachedAvatar(
                     radius: w * 0.10,
                     backgroundColor: Colors.grey.shade200,
-                    backgroundImage: (user.profileImage != null &&
-                        user.profileImage!.startsWith("http"))
-                        ? NetworkImage(user.profileImage!)
+                    imageUrl: (user.profileImage != null && user.profileImage!.startsWith("http"))
+                        ? user.profileImage
                         : null,
-                    child: (user.profileImage == null)
-                        ? Icon(Icons.person, color: Colors.grey, size: w * 0.10)
-                        : null,
+                    iconFallback: Icons.person,
+                    iconColor: Colors.grey,
                   ),
 
                   SizedBox(width: w * 0.04),
