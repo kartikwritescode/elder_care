@@ -12,7 +12,7 @@ import 'repeat_options_tile.dart';
 class AddEditTaskDialog extends StatefulWidget {
   final bool isEdit;
   final TaskController controller;
-  const AddEditTaskDialog({Key? key, required this.isEdit, required this.controller}) : super(key: key);
+  const AddEditTaskDialog({super.key, required this.isEdit, required this.controller});
 
   @override
   State<AddEditTaskDialog> createState() => _AddEditTaskDialogState();
@@ -324,8 +324,9 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                   } else {
                     await widget.controller.addTask();
                   }
+                  if (!mounted || !context.mounted) return;
                   setState(() => loading = false);
-                  Navigator.pop(context,true);
+                  Navigator.pop(context, true);
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: kTeal,

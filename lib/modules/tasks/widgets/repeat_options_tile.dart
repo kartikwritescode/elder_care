@@ -7,7 +7,7 @@ import 'day_chips.dart';
 
 class RepeatOptions extends StatelessWidget {
   final TaskController controller;
-  const RepeatOptions({Key? key, required this.controller}) : super(key: key);
+  const RepeatOptions({super.key, required this.controller});
 
   static const Color kTeal = Color(0xFF7AB7A7);
 
@@ -59,7 +59,7 @@ class RepeatCard extends StatelessWidget {
   final VoidCallback onTap;
 
   const RepeatCard({
-    Key? key,
+    super.key,
     required this.label,
     required this.selected,
     required this.onTap,
@@ -76,7 +76,7 @@ class RepeatCard extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: selected ? kTeal.withOpacity(0.12) : Colors.grey.shade100,
+          color: selected ? kTeal.withValues(alpha: 0.12) : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: selected ? kTeal : Colors.transparent,

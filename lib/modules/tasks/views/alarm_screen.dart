@@ -47,7 +47,7 @@ class _AlarmScreenState extends State<AlarmScreen> {
               'Today',
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.white.withOpacity(0.6),
+                color: Colors.white.withValues(alpha: 0.6),
               ),
             ),
 
@@ -70,7 +70,7 @@ class _AlarmScreenState extends State<AlarmScreen> {
               child: Container(
                 height: 64,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.08),
+                  color: Colors.white.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(40),
                 ),
                 child: Stack(
@@ -80,7 +80,7 @@ class _AlarmScreenState extends State<AlarmScreen> {
                       child: Text(
                         'Slide to stop',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.5),
+                          color: Colors.white.withValues(alpha: 0.5),
                           fontSize: 16,
                         ),
                       ),
@@ -132,7 +132,7 @@ class _AlarmScreenState extends State<AlarmScreen> {
               child: Text(
                 'Snooze',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.5),
+                  color: Colors.white.withValues(alpha: 0.5),
                   fontSize: 16,
                 ),
               ),

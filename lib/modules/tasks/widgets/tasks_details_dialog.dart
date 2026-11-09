@@ -11,10 +11,10 @@ class TaskDetailsDialog extends StatelessWidget {
   final TaskController controller;
 
   const TaskDetailsDialog({
-    Key? key,
+    super.key,
     required this.task,
     required this.controller,
-  }) : super(key: key);
+  });
 
   static const Color kTeal = Color(0xFF7AB7A7);
 
@@ -133,8 +133,7 @@ class TaskDetailsDialog extends StatelessWidget {
                             controller.startEdit(task);
                             Navigator.pop(context);
                             Future.delayed(const Duration(milliseconds: 100), () {
-                              openCustomDialog(
-                                context,
+                              Get.dialog(
                                 AddEditTaskDialog(
                                   isEdit: true,
                                   controller: controller,

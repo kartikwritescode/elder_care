@@ -3,12 +3,16 @@ import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/models/task_model.dart';
+import '../../../core/repositories/task_repository.dart';
 import '../../../core/services/native_alarm_service.dart';
 import '../../../core/services/fcm_service.dart';
 import '../../../core/services/reciever_service.dart';
 
 class TaskController extends GetxController {
   final supabase = Supabase.instance.client;
+  TaskRepository get taskRepo => Get.isRegistered<TaskRepository>()
+      ? Get.find<TaskRepository>()
+      : TaskRepository();
 
   RxList<TaskModel> tasks = <TaskModel>[].obs;
 
@@ -75,14 +79,12 @@ class TaskController extends GetxController {
   Future<void> loadTasksForReceiver(String receiverId) async {
     currentReceiverId = receiverId;
     try {
-      final res = await supabase
-          .from('tasks')
-          .select()
-          .eq('receiver_id', receiverId)
-          .or('repeat_type.neq.none,is_completed.eq.false')
-          .order('datetime', ascending: true);
-
-      final list = (res as List).map((e) => TaskModel.fromMap(Map<String, dynamic>.from(e))).toList();
+      final list = await taskRepo.getTasks(
+        receiverId,
+        onCacheLoaded: (cachedList) {
+          tasks.assignAll(cachedList);
+        },
+      );
       tasks.assignAll(list);
     } catch (e) {
       debugPrint('loadTasks error: $e');
@@ -109,10 +111,9 @@ class TaskController extends GetxController {
     );
 
     try {
-      final res = await supabase.from('tasks').insert(model.toMap()).select().limit(1);
+      final created = await taskRepo.createTask(model);
 
-      if (res.isNotEmpty) {
-        final created = TaskModel.fromMap(Map<String, dynamic>.from(res.first));
+      if (created != null) {
         tasks.insert(0, created);
 
         final myUid = supabase.auth.currentUser?.id;
@@ -184,10 +185,9 @@ class TaskController extends GetxController {
     );
 
     try {
-      final res = await supabase.from('tasks').update(model.toUpdateMap()).eq('id', editingId!).select().limit(1);
+      final updated = await taskRepo.updateTask(editingId!, model);
 
-      if (res.isNotEmpty) {
-        final updated = TaskModel.fromMap(Map<String, dynamic>.from(res.first));
+      if (updated != null) {
         
         final myUid = supabase.auth.currentUser?.id;
         final isReceiver = myUid == currentReceiverId;
@@ -235,9 +235,9 @@ class TaskController extends GetxController {
   }
 
   Future<void> deleteTaskConfirmed(TaskModel task) async {
-    if (task.id == null) return;
+    if (task.id == null || currentReceiverId == null) return;
     try {
-      await supabase.from('tasks').delete().eq('id', task.id!);
+      await taskRepo.deleteTask(task.id!, currentReceiverId!);
       tasks.removeWhere((t) => t.id == task.id);
 
       final myUid = supabase.auth.currentUser?.id;
@@ -296,25 +296,35 @@ class TaskController extends GetxController {
       );
     }
 
-    await supabase.from('tasks').delete().eq('id', task.id!);
+    try {
+      await supabase.from('tasks').delete().eq('id', task.id!);
 
-    Get.snackbar(
-      'Task deleted',
-      task.title,
-      snackPosition: SnackPosition.BOTTOM,
-      duration: const Duration(seconds: 4),
-      mainButton: TextButton(
-        onPressed: undoDelete,
-        child: const Text('UNDO', style: TextStyle(color: Colors.white)),
-      ),
-      backgroundColor: Colors.black87,
-      colorText: Colors.white,
-    );
+      Get.snackbar(
+        'Task deleted',
+        task.title,
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 4),
+        mainButton: TextButton(
+          onPressed: undoDelete,
+          child: const Text('UNDO', style: TextStyle(color: Colors.white)),
+        ),
+        backgroundColor: Colors.black87,
+        colorText: Colors.white,
+      );
+    } catch (e) {
+      debugPrint('deleteTaskWithUndo error: $e');
+      if (!tasks.contains(task)) {
+        tasks.insert(index.clamp(0, tasks.length), task);
+      }
+      Get.snackbar('Error', 'Could not delete task', snackPosition: SnackPosition.BOTTOM);
+    }
   }
 
   Future<void> undoDelete() async {
     if (_lastDeletedTask == null || _lastDeletedIndex == null) return;
-    Get.back();
+    if (Get.isSnackbarOpen) {
+      Get.closeCurrentSnackbar();
+    }
 
     final restored = _lastDeletedTask!;
     final map = restored.toMap()..remove('id');
@@ -357,33 +367,46 @@ class TaskController extends GetxController {
   }
 
   Future<void> markTaskCompleted(TaskModel task, int index) async {
-    tasks.removeAt(index);
-    final myUid = supabase.auth.currentUser?.id;
-    final isReceiver = myUid == currentReceiverId;
-
-    if (isReceiver) {
-      await NativeAlarmService.cancel(task.id!.toString());
-      final caregiverId = await ReceiverService.getLinkedCaregiverId();
-      if (caregiverId != null) {
-        await FcmService.sendNotification(
-          receiverId: caregiverId,
-          title: "Task Completed",
-          body: "Receiver completed: ${task.title}",
-          type: "task_completed"
-        );
-      }
-    } else if (currentReceiverId != null) {
-       await FcmService.sendRemoteAlarm(
-         receiverId: currentReceiverId!,
-         alarmId: task.id.toString(),
-         time: DateTime.now(),
-         title: "",
-         isCancel: true,
-       );
+    if (index >= 0 && index < tasks.length) {
+      tasks.removeAt(index);
     }
 
-    await supabase.from('tasks').update({'is_completed': true}).eq('id', task.id!);
-    Get.snackbar('Task completed', task.title, snackPosition: SnackPosition.BOTTOM);
+    try {
+      final myUid = supabase.auth.currentUser?.id;
+      final isReceiver = myUid == currentReceiverId;
+
+      if (isReceiver && task.id != null) {
+        await NativeAlarmService.cancel(task.id!.toString());
+        final caregiverId = await ReceiverService.getLinkedCaregiverId();
+        if (caregiverId != null) {
+          await FcmService.sendNotification(
+            receiverId: caregiverId,
+            title: "Task Completed",
+            body: "Receiver completed: ${task.title}",
+            type: "task_completed"
+          );
+        }
+      } else if (currentReceiverId != null && task.id != null) {
+         await FcmService.sendRemoteAlarm(
+           receiverId: currentReceiverId!,
+           alarmId: task.id.toString(),
+           time: DateTime.now(),
+           title: "",
+           isCancel: true,
+         );
+      }
+
+      if (task.id != null) {
+        await supabase.from('tasks').update({'is_completed': true}).eq('id', task.id!);
+      }
+      Get.snackbar('Task completed', task.title, snackPosition: SnackPosition.BOTTOM);
+    } catch (e) {
+      debugPrint('markTaskCompleted error: $e');
+      if (!tasks.contains(task)) {
+        tasks.insert(index.clamp(0, tasks.length), task);
+      }
+      Get.snackbar('Error', 'Failed to complete task', snackPosition: SnackPosition.BOTTOM);
+    }
   }
 
   void startEdit(TaskModel t) {

@@ -6,7 +6,7 @@ import '../controllers/task_controller.dart';
 const Color kTeal = Color(0xFF7AB7A7);
 class CustomDayChips extends StatelessWidget {
   final TaskController controller;
-  const CustomDayChips({Key? key, required this.controller}) : super(key: key);
+  const CustomDayChips({super.key, required this.controller});
 
   static const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   static const Color kTeal = Color(0xFF7AB7A7);
@@ -37,7 +37,7 @@ class CustomDayChips extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: selected ? kTeal.withOpacity(0.15) : Colors.grey.shade100,
+                    color: selected ? kTeal.withValues(alpha: 0.15) : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: selected ? kTeal : Colors.transparent,

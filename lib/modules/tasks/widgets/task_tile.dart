@@ -1,11 +1,8 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/models/task_model.dart';
-import '../../care_receiver/views/schedule_screen.dart';
 
 class TaskTile extends StatelessWidget {
   final TaskModel task;
@@ -156,20 +153,5 @@ String _friendlyDate(String iso) {
   } catch (_) {
     return iso;
   }
-}
-
-Widget _heroFlightBuilder(
-    BuildContext context,
-    Animation<double> animation,
-    HeroFlightDirection direction,
-    BuildContext from,
-    BuildContext to,
-    ) {
-  return ScaleTransition(
-    scale: Tween(begin: 1.0, end: 1.03).animate(
-      CurvedAnimation(parent: animation, curve: Curves.easeInOut),
-    ),
-    child: to.widget,
-  );
 }
 

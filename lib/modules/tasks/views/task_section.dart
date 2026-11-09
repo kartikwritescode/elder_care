@@ -15,10 +15,10 @@ const Color kTeal = Color(0xFF7AB7A7);
 class TaskSection extends StatelessWidget {
   final String? receiverIdOverride;
 
-  TaskSection({Key? key, this.receiverIdOverride}) : super(key: key);
+  const TaskSection({super.key, this.receiverIdOverride});
 
-  final TaskController controller = Get.find<TaskController>();
-  final NavController nav = Get.find<NavController>();
+  TaskController get controller => Get.find<TaskController>();
+  NavController get nav => Get.find<NavController>();
 
   @override
   Widget build(BuildContext context) {
@@ -121,61 +121,16 @@ class TaskSection extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (_, i) {
           final t = list[i];
-          final isRemoving = false.obs;
-
-          return Dismissible(
-            key: ValueKey("task_${t.id}_$i"),
-            direction: DismissDirection.horizontal,
-            background: _buildDismissBackground(Alignment.centerLeft),
-            secondaryBackground: _buildDismissBackground(Alignment.centerRight),
-            onDismissed: (direction) {
-              controller.deleteTaskWithUndo(t, i);
-            },
-            child: Obx(() => Stack(
-              children: [
-                // Green background for the "Done" animation
-                Container(
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(22),
-                  ),
-                ),
-                AnimatedSlide(
-                  offset: isRemoving.value ? const Offset(-1.2, 0) : Offset.zero,
-                  duration: const Duration(milliseconds: 500),
-                  child: GestureDetector(
-                    onTap: () => _openDetailsDialog(context, t),
-                    child: TaskTile(
-                      task: t,
-                      onDone: () async {
-                        await SoundUtils.playDone();
-                        HapticFeedback.mediumImpact();
-                        isRemoving.value = true;
-                        await Future.delayed(const Duration(milliseconds: 500));
-                        controller.markTaskCompleted(t, i);
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            )),
+          return _TaskItem(
+            key: ValueKey("task_${t.id}"),
+            task: t,
+            index: i,
+            controller: controller,
+            onTap: () => _openDetailsDialog(context, t),
           );
         },
       );
     });
-  }
-
-  Widget _buildDismissBackground(Alignment alignment) {
-    return Container(
-      alignment: alignment,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      decoration: BoxDecoration(
-        color: Colors.redAccent.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: const Icon(Icons.delete_sweep, color: Colors.redAccent),
-    );
   }
 
   void _openAddDialog(BuildContext ctx, {required bool isEdit}) {
@@ -193,3 +148,79 @@ class TaskSection extends StatelessWidget {
     );
   }
 }
+
+class _TaskItem extends StatefulWidget {
+  final TaskModel task;
+  final int index;
+  final TaskController controller;
+  final VoidCallback onTap;
+
+  const _TaskItem({
+    super.key,
+    required this.task,
+    required this.index,
+    required this.controller,
+    required this.onTap,
+  });
+
+  @override
+  State<_TaskItem> createState() => _TaskItemState();
+}
+
+class _TaskItemState extends State<_TaskItem> {
+  bool _isRemoving = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dismissible(
+      key: ValueKey("task_${widget.task.id}"),
+      direction: DismissDirection.horizontal,
+      background: _buildDismissBackground(Alignment.centerLeft),
+      secondaryBackground: _buildDismissBackground(Alignment.centerRight),
+      onDismissed: (_) {
+        widget.controller.deleteTaskWithUndo(widget.task, widget.index);
+      },
+      child: Stack(
+        children: [
+          Container(
+            height: 80,
+            decoration: BoxDecoration(
+              color: Colors.green.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(22),
+            ),
+          ),
+          AnimatedSlide(
+            offset: _isRemoving ? const Offset(-1.2, 0) : Offset.zero,
+            duration: const Duration(milliseconds: 500),
+            child: GestureDetector(
+              onTap: widget.onTap,
+              child: TaskTile(
+                task: widget.task,
+                onDone: () async {
+                  await SoundUtils.playDone();
+                  HapticFeedback.mediumImpact();
+                  if (mounted) setState(() => _isRemoving = true);
+                  await Future.delayed(const Duration(milliseconds: 500));
+                  widget.controller.markTaskCompleted(widget.task, widget.index);
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDismissBackground(Alignment alignment) {
+    return Container(
+      alignment: alignment,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: BoxDecoration(
+        color: Colors.redAccent.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: const Icon(Icons.delete_sweep, color: Colors.redAccent),
+    );
+  }
+}
+
