@@ -14,6 +14,16 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    override fun onResume() {
+        super.onResume()
+        isAppInForeground = true
+    }
+
+    override fun onPause() {
+        super.onPause()
+        isAppInForeground = false
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -96,9 +106,11 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun showFullScreenNotification(alarmId: String, title: String, isSos: Boolean) {
+        val safeTitle = if (title.isNotBlank()) title.trim() else (if (isSos) "EMERGENCY" else "Task Reminder")
+
         val intent = Intent(this, AlarmActivity::class.java).apply {
             putExtra("alarm_id", alarmId)
-            putExtra("alarm_title", title)
+            putExtra("alarm_title", safeTitle)
             putExtra("is_sos", isSos)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
@@ -112,7 +124,7 @@ class MainActivity : FlutterActivity() {
 
         val builder = NotificationCompat.Builder(this, "alarm_channel")
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
+            .setContentTitle(safeTitle)
             .setContentText(if (isSos) "EMERGENCY - Tap to Respond" else "Time for your task")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
@@ -127,5 +139,6 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "eldercare/alarm"
+        var isAppInForeground = false
     }
 }

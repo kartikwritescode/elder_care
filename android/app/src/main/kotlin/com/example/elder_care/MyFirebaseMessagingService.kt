@@ -1,5 +1,6 @@
 package com.example.elder_care
 
+import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -29,7 +30,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 "schedule_alarm" -> {
                     val alarmId = data["alarm_id"] ?: return
                     val alarmTime = data["alarm_time"]?.toLongOrNull() ?: return
-                    val title = data["title"] ?: "Task Reminder"
+                    val title = data["title"]?.trim()?.takeIf { it.isNotEmpty() } ?: "Task Reminder"
                     val dosage = data["dosage"]
                     val instructions = data["instructions"]
                     val repeatType = data["repeat_type"] ?: "none"
@@ -72,29 +73,65 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     showFullScreenAlarm("SOS", "EMERGENCY ALERT", true)
                 }
                 "chat" -> {
-                    showStandardNotification(
-                        "chat_channel",
-                        data["sender_name"] ?: "New Message",
-                        data["message"] ?: "You received a chat message",
-                        data["chat_id"]
-                    )
+                    // Only show standard notification if not already handled by FCM system tray
+                    // (when remoteMessage.notification is present) and not in foreground
+                    // (when Flutter's onMessage handles it).
+                    if (remoteMessage.notification == null && !isForeground()) {
+                        val senderName = data["sender_name"]?.trim()?.takeIf { it.isNotEmpty() }
+                            ?: data["title"]?.trim()?.takeIf { it.isNotEmpty() }
+                            ?: "New Message"
+                        val messageText = data["message"]?.trim()?.takeIf { it.isNotEmpty() }
+                            ?: data["body"]?.trim()?.takeIf { it.isNotEmpty() }
+                            ?: "You received a chat message"
+                        showStandardNotification(
+                            "chat_channel",
+                            senderName,
+                            messageText,
+                            data["chat_id"]
+                        )
+                    } else {
+                        Log.d("FCM_DEBUG", "Skipping native chat notification to prevent duplicate (inForeground=${isForeground()}, hasNotification=${remoteMessage.notification != null})")
+                    }
                 }
                 "mood_update", "location_alert", "event_update" -> {
-                    showStandardNotification(
-                        "update_channel",
-                        data["title"] ?: "Update",
-                        data["body"] ?: "Update detected",
-                        null
-                    )
+                    if (remoteMessage.notification == null && !isForeground()) {
+                        val title = data["title"]?.trim()?.takeIf { it.isNotEmpty() } ?: "Update"
+                        val body = data["body"]?.trim()?.takeIf { it.isNotEmpty() } ?: "Update detected"
+                        showStandardNotification(
+                            "update_channel",
+                            title,
+                            body,
+                            null
+                        )
+                    } else {
+                        Log.d("FCM_DEBUG", "Skipping native update notification to prevent duplicate (inForeground=${isForeground()}, hasNotification=${remoteMessage.notification != null})")
+                    }
                 }
             }
         }
     }
 
+    private fun isForeground(): Boolean {
+        if (MainActivity.isAppInForeground) return true
+        return try {
+            val am = getSystemService(ACTIVITY_SERVICE) as? ActivityManager ?: return false
+            val processes = am.runningAppProcesses ?: return false
+            val pkg = packageName
+            processes.any {
+                it.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND &&
+                        it.processName == pkg
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun showFullScreenAlarm(alarmId: String, title: String, isSOS: Boolean) {
+        val safeTitle = if (title.isNotBlank()) title.trim() else (if (isSOS) "EMERGENCY ALERT" else "Medicine Reminder")
+
         val intent = Intent(this, AlarmActivity::class.java).apply {
             putExtra("alarm_id", alarmId)
-            putExtra("alarm_title", title)
+            putExtra("alarm_title", safeTitle)
             putExtra("is_sos", isSOS)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
@@ -108,7 +145,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         val builder = NotificationCompat.Builder(this, ALARM_CHANNEL)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
+            .setContentTitle(safeTitle)
             .setContentText(if (isSOS) "EMERGENCY - Tap to Respond" else "Time for your task")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
@@ -122,6 +159,18 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     private fun showStandardNotification(channelId: String, title: String, body: String, extraId: String?) {
+        val trimmedTitle = title.trim()
+        val trimmedBody = body.trim()
+
+        // NEVER show blank notifications
+        if (trimmedTitle.isEmpty() && trimmedBody.isEmpty()) {
+            Log.w("FCM_DEBUG", "⚠️ Skipping blank notification: both title and body are empty")
+            return
+        }
+
+        val safeTitle = if (trimmedTitle.isNotEmpty()) trimmedTitle else "ElderCare"
+        val safeBody = if (trimmedBody.isNotEmpty()) trimmedBody else "You have a new notification"
+
         val intent = Intent(this, MainActivity::class.java).apply {
             putExtra("extra_id", extraId)
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -129,21 +178,21 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         val pendingIntent = PendingIntent.getActivity(
             this,
-            (title + body).hashCode(),
+            (safeTitle + safeBody).hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText(body)
+            .setContentTitle(safeTitle)
+            .setContentText(safeBody)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
 
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify((title + body).hashCode(), builder.build())
+        manager.notify((safeTitle + safeBody).hashCode(), builder.build())
     }
 
     private fun createChannels() {

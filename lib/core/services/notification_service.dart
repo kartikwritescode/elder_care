@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
-import 'package:get/get.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:get/get.dart';
+import '../../modules/chat/controllers/chat_controller.dart';
 
 /// Top-level background message handler for FCM.
 /// Must be outside any class.
@@ -76,26 +76,80 @@ class NotificationService {
   }
 
   static Future<void> _showLocalNotification(RemoteMessage message) async {
-    RemoteNotification? notification = message.notification;
-    AndroidNotification? android = message.notification?.android;
+    if (kIsWeb) return;
 
-    if (notification != null && !kIsWeb) {
-      await _localNotifications.show(
-        notification.hashCode,
-        notification.title,
-        notification.body,
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'default_channel', // Matches native side
-            'General Notifications',
-            importance: Importance.max,
-            priority: Priority.high,
-            showWhen: true,
-          ),
-        ),
-        payload: message.data.toString(),
-      );
+    final String? type = message.data['type'];
+
+    // Don't show in-app banner for chat if user is already actively looking at that chat
+    if (type == 'chat') {
+      final String? chatId = message.data['chat_id'];
+      if (chatId != null && Get.isRegistered<ChatController>()) {
+        final chatCtl = Get.find<ChatController>();
+        if (chatCtl.activeChatId == chatId && Get.currentRoute == '/chat') {
+          debugPrint("🔇 Chat screen is currently open for $chatId. Skipping banner.");
+          return;
+        }
+      }
     }
+
+    // Resolve title and body from notification payload OR data payload
+    String? title = message.notification?.title;
+    if (title == null || title.trim().isEmpty) {
+      title = message.data['title'] ?? message.data['sender_name'];
+    }
+
+    String? body = message.notification?.body;
+    if (body == null || body.trim().isEmpty) {
+      body = message.data['body'] ?? message.data['message'];
+    }
+
+    title = title?.trim();
+    body = body?.trim();
+
+    // NEVER show blank notifications
+    final bool isTitleEmpty = title == null || title.isEmpty;
+    final bool isBodyEmpty = body == null || body.isEmpty;
+
+    if (isTitleEmpty && isBodyEmpty) {
+      debugPrint("⚠️ Skipping blank notification (both title and body are empty)");
+      return;
+    }
+
+    final String safeTitle = isTitleEmpty ? (type == 'chat' ? 'New Message' : 'ElderCare') : title;
+    final String safeBody = isBodyEmpty ? 'You have a new notification' : body;
+
+    // Pick channel matching native side
+    String channelId = 'default_channel';
+    String channelName = 'General Notifications';
+
+    if (type == 'chat') {
+      channelId = 'chat_channel';
+      channelName = 'Chat Messages';
+    } else if (type == 'mood_update' || type == 'location_alert' || type == 'event_update') {
+      channelId = 'update_channel';
+      channelName = 'Receiver Updates';
+    }
+
+    // Deterministic notification ID based on messageId or content to prevent duplicates
+    final int notificationId = message.messageId != null
+        ? message.messageId.hashCode
+        : (safeTitle + safeBody).hashCode;
+
+    await _localNotifications.show(
+      notificationId,
+      safeTitle,
+      safeBody,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          channelId,
+          channelName,
+          importance: Importance.max,
+          priority: Priority.high,
+          showWhen: true,
+        ),
+      ),
+      payload: message.data.toString(),
+    );
   }
 
   static void _onNotificationTapped(NotificationResponse response) {
